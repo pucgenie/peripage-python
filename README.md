@@ -72,9 +72,13 @@ Install dependencies with
 **On linux:**
 
 ```
-user@name:~$ hcitool scan
-Scanning ..
-00:15:83:15:bc:5f    PeriPage+BC5F
+elias@luna:~$ bluetoothctl scan
+[NEW] Media /org/bluez/hci0 
+	SupportedUUIDs: 00000000-0000-0000-0000-008000000000
+	SupportedUUIDs: 00000000-0000-0000-0000-008000000000
+Agent registered
+[CHG] Device B5:5B:13:08:F6:22 Name: PeriPage_14B3_BLE
+[CHG] Device B5:5B:13:08:F6:22 Alias: PeriPage_14B3_BLE
 ```
 
 **On windows:**
