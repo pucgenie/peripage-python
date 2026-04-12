@@ -817,7 +817,7 @@ class Printer:
         # Delegate to impl
         self.printRowBytesList([ imagebytes[i:i+self.getRowBytes()] for i in range(0, len(imagebytes), self.getRowBytes()) ], delay=delay)
 
-    def printImage(self, img: PIL.Image.Image, delay=0.01, resample=PIL.Image.Resampling.NEAREST) -> None:
+    def printImage(self, img: PIL.Image.Image, delay=0.01, resample=PIL.Image.Resampling.NEAREST) -> typing.List[str]:
         """
         Print PIL Image on this printer with automatic internal to-blackwhite
         conversion.
@@ -832,15 +832,24 @@ class Printer:
         * `delay` - delay between printing each row of the image.
         * `resample` - resampling mode of the image, used to automatically
         rescale image to fit the printer width of `Printer.getRowWidth()`.
+
+        Returns a list of str with all automagical, optional actions taken.
         """
 
-        img = img.convert('L')
+        # logger-less feedback
+        warnings = []
+
+        if img.mode != "L":
+            img = img.convert('L')
         img = PIL.ImageOps.invert(img)
-        img = img.resize((self.getRowWidth(), int(self.getRowWidth() / img.size[0] * img.size[1])), resample)
+        if img.size[0] != self.getRowWidth():
+            img = img.resize((self.getRowWidth(), int(self.getRowWidth() / img.size[0] * img.size[1])), resample)
+            warnings.append('RESIZED')
         img = img.convert('1')
 
         imgbytes = img.tobytes()
         self.printImageBytes(imgbytes, delay=delay)
+        return warnings
 
     def printImageIterator(self, imgiterator: typing.Iterable[PIL.Image.Image], delay: float=0.01):
         """
