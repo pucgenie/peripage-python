@@ -60,8 +60,8 @@ pip install peripage
 
 ## Dependencies
 
-* `PyBluez>=0.30`
-* `Pillow>=8.1.2`
+* `PyBluez>=0.30` tested with `PyBluez-bitalino 0.30`
+* `Pillow>=8.1.2`, tested with `12.1.1`
 * `argparse>=1.1`
 
 Install dependencies with
