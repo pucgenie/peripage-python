@@ -23,13 +23,22 @@ __copyright__ = 'Copyright (c) GPLv3 2021-2023 bitrate16 (pegasko)'
 
 
 import time
-import qrcode
 import typing
 import enum
-import bluetooth
+try:
+    import bluetooth
+except ModuleNotFoundError as mnfe:
+    from sys import stderr
+    print("Your environment is missing pybluez. Suggestion (mind your venv etc.): python3 -m pip install 'pybluez[ble]'", file=stderr,)
+    raise mnfe
 
-import PIL.Image
-import PIL.ImageOps
+try:
+    import PIL.Image
+    import PIL.ImageOps
+except ModuleNotFoundError as mnfe:
+    from sys import stderr
+    print("Your environment is missing PIL. Suggestion (mind your venv etc.): python3 -m pip install 'Pillow'", file=stderr,)
+    raise mnfe
 
 
 class PrinterTypeSpecs:
@@ -91,6 +100,9 @@ class PrinterType(enum.Enum):
 
     def __init__(self, spec: PrinterTypeSpecs):
         self.spec = spec
+
+class PeripageFirmware:
+    COMMAND_PREFIX: Final[bytes] = b'\x10\xff'
 
 class Printer:
     """
@@ -873,5 +885,5 @@ class Printer:
         * `resample` - resampling mode of the image, used to automatically
         rescale image to fit the printer width of `Printer.getRowWidth()`.
         """
-
+        import qrcode
         self.printImage(qrcode.make(text, border=0), delay=delay, resample=resample)
