@@ -23,13 +23,22 @@ __copyright__ = 'Copyright (c) GPLv3 2021-2023 bitrate16 (pegasko)'
 
 
 import time
-import qrcode
 import typing
 import enum
-import bluetooth
+try:
+    import bluetooth
+except ModuleNotFoundError as mnfe:
+    from sys import stderr
+    print("Your environment is missing pybluez. Suggestion (mind your venv etc.): python3 -m pip install 'pybluez[ble]'", file=stderr,)
+    raise mnfe
 
-import PIL.Image
-import PIL.ImageOps
+try:
+    import PIL.Image
+    import PIL.ImageOps
+except ModuleNotFoundError as mnfe:
+    from sys import stderr
+    print("Your environment is missing PIL. Suggestion (mind your venv etc.): python3 -m pip install 'Pillow'", file=stderr,)
+    raise mnfe
 
 
 class PrinterTypeSpecs:
@@ -92,6 +101,9 @@ class PrinterType(enum.Enum):
     def __init__(self, spec: PrinterTypeSpecs):
         self.spec = spec
 
+class PeripageFirmware:
+    COMMAND_PREFIX: typing.Final[bytes] = b"\x10\xff"
+
 class Printer:
     """
     This class defines the Peripage interface utility.
@@ -144,6 +156,7 @@ class Printer:
         self.mac = mac
         self.timeout = timeout
         self.printer_type = printer_type
+        self.concentration = 1 # FIXME: Is it the default?
 
         # buffer used for continuous printing with line wrapping
         self.print_buffer = ''
@@ -276,7 +289,7 @@ class Printer:
         Example: Peripage A6+ returns `IP-300`.
         """
 
-        return self.askPrinter(bytes.fromhex('10ff20f0'))
+        return self.askPrinter(PeripageFirmware.COMMAND_PREFIX + b"\x20\xf0")
 
     def getDeviceName(self) -> bytes:
         """
@@ -289,7 +302,7 @@ class Printer:
         Example: Peripage A6+ returns `PeriPage+DF7A`.
         """
 
-        return self.askPrinter(bytes.fromhex('10ff3011'))
+        return self.askPrinter(PeripageFirmware.COMMAND_PREFIX + b"\x30\x11")
 
     def getDeviceSerialNumber(self) -> bytes:
         """
@@ -302,7 +315,7 @@ class Printer:
         Example: Peripage A6+ returns `A6491571121`.
         """
 
-        return self.askPrinter(bytes.fromhex('10ff20f2'))
+        return self.askPrinter(PeripageFirmware.COMMAND_PREFIX + b"\x20\xf2")
 
     def getDeviceFirmware(self) -> bytes:
         """
@@ -315,7 +328,7 @@ class Printer:
         Example: Peripage A6+ returns `V2.11_304dpi`.
         """
 
-        return self.askPrinter(bytes.fromhex('10ff20f1'))
+        return self.askPrinter(PeripageFirmware.COMMAND_PREFIX + b"\x20\xf1")
 
     def getDeviceBattery(self) -> int:
         """
@@ -327,7 +340,7 @@ class Printer:
 
         Example: Peripage A6+ returns `\\x00@` (equals to `bytes[2] = { 0, 64 }`).
         """
-        return int(self.askPrinter(bytes.fromhex('10ff50f1'))[1])
+        return int(self.askPrinter(PeripageFirmware.COMMAND_PREFIX + b"\x50\xf1")[1])
 
     def getDeviceHardware(self) -> bytes:
         """
@@ -341,7 +354,7 @@ class Printer:
         `BR2141e-s` chip with a pile of ascii letters.
         """
 
-        return self.askPrinter(bytes.fromhex('10ff3010'))
+        return self.askPrinter(PeripageFirmware.COMMAND_PREFIX + b"\x30\x10")
 
     def getDeviceMAC(self) -> bytes:
         """
@@ -355,7 +368,7 @@ class Printer:
         (equals to `00:F5:73:25:AC:9F`).
         """
 
-        return self.askPrinter(bytes.fromhex('10ff3012'))
+        return self.askPrinter(PeripageFirmware.COMMAND_PREFIX + b"\x30\x12")
 
     def getDeviceFull(self) -> bytes:
         """
@@ -375,7 +388,7 @@ class Printer:
         in-printer ASCII buffer.
         """
 
-        return self.askPrinter(bytes.fromhex('10ff70f100'))
+        return self.askPrinter(PeripageFirmware.COMMAND_PREFIX + b"\x70\xf1\0")
 
     def getRowBytes(self) -> int:
         """
@@ -441,7 +454,7 @@ class Printer:
         `Printer.is_safe_ascii()` check.
         """
 
-        request = bytes.fromhex('10ff20f4') + Printer.filter_ascii(serial_number).encode('ascii') + b'\0'
+        request = PeripageFirmware.COMMAND_PREFIX + b"\x20\xf4" + Printer.filter_ascii(serial_number).encode('ascii') + b'\0'
 
         if wait:
             return self.askPrinter(request)
@@ -464,7 +477,7 @@ class Printer:
         """
 
         timeout = max(min(0xfff0, timeout), 0x0001)
-        request = bytes.fromhex('10ff12') + int.to_bytes(timeout, 2, 'big')
+        request = PeripageFirmware.COMMAND_PREFIX + b'0x12' + int.to_bytes(timeout, 2, 'big')
 
         if wait:
             return self.askPrinter(request)
@@ -485,17 +498,16 @@ class Printer:
         * `concentration` - concentration value from range `(0, 1, 2)`
         """
 
-        if concentration <= 0:
-            request = bytes.fromhex('10ff100000')
-        elif concentration == 1:
-            request = bytes.fromhex('10ff100001')
-        elif concentration >= 2:
-            request = bytes.fromhex('10ff100002')
+        if 0 <= concentration <= 2:
+            request = b"\x10\0" + concentration.to_bytes()
+            self.concentration = concentration
+        else:
+            raise IndexError("concentration value from range `(0, 1, 2)`")
 
         if wait:
-            return self.askPrinter(request)
+            return self.askPrinter(PeripageFirmware.COMMAND_PREFIX + request)
         else:
-            self.tellPrinter(request)
+            self.tellPrinter(PeripageFirmware.COMMAND_PREFIX + request)
 
     def reset(self) -> None:
         """
@@ -506,7 +518,7 @@ class Printer:
         Request: `10fffe01+000000000000000000000000`.
         """
 
-        self.tellPrinter(bytes.fromhex('10fffe01000000000000000000000000'))
+        self.tellPrinter(PeripageFirmware.COMMAND_PREFIX + bytes.fromhex('fe01000000000000000000000000'))
 
     def printBreak(self, size: int=0x40) -> None:
         """
@@ -522,7 +534,7 @@ class Printer:
         """
 
         size = min(0xff, max(0x01, size))
-        request = bytes.fromhex('1b4a') + int.to_bytes(size, 1, 'big')
+        request = b"\x1b\x4a" + int.to_bytes(size, 1, 'big')
 
         self.tellPrinter(request)
 
@@ -743,7 +755,7 @@ class Printer:
 
             #                 1d763000    30                    00    01                     00
             # Send preamble: `1d763000` + row_bytes:bytes[1] + `00` + chunk_size:bytes[1] + `00`
-            request = bytes.fromhex('1d763000') + int.to_bytes(self.getRowBytes(), 1, 'big') + bytes.fromhex('00') + int.to_bytes(len(chunk), 1, 'big') + bytes.fromhex('00')
+            request = b"\x1d\x76\x30\0" + int.to_bytes(self.getRowBytes(), 1, 'big') + b'\0' + int.to_bytes(len(chunk), 1, 'big') + b'\0'
 
             # Flush preamble
             self.tellPrinter(request)
@@ -758,7 +770,8 @@ class Printer:
 
                 self.tellPrinter(row)
 
-                time.sleep(delay)
+                # pucgenie: alternatively introduce delay_bulk ?
+                time.sleep(delay * max(1, self.concentration))
 
     def printRowBytesIterator(self, rowiterator: typing.Iterable[bytes], delay: float=0.01) -> None:
         """
@@ -776,7 +789,7 @@ class Printer:
         for r in rowiterator:
             self.printRow(r, delay=delay)
 
-    def printRowChunksIterator(self, rowiterator: typing.Iterable[typing.List[bytes]], delay: float=0.01) -> None:
+    def printRowChunksIterator(self, rowiterator: typing.Iterable[list[bytes]], delay: float=0.01) -> None:
         """
         Iterate over the given iterator and print out all produced chunks of
         rows. One chunk of rows is a list of bytes where each bytes define the
@@ -817,7 +830,7 @@ class Printer:
         # Delegate to impl
         self.printRowBytesList([ imagebytes[i:i+self.getRowBytes()] for i in range(0, len(imagebytes), self.getRowBytes()) ], delay=delay)
 
-    def printImage(self, img: PIL.Image.Image, delay=0.01, resample=PIL.Image.Resampling.NEAREST) -> typing.List[str]:
+    def printImage(self, img: PIL.Image.Image, delay=0.01, resample=PIL.Image.Resampling.NEAREST) -> list[str]:
         """
         Print PIL Image on this printer with automatic internal to-blackwhite
         conversion.
@@ -873,5 +886,6 @@ class Printer:
         * `resample` - resampling mode of the image, used to automatically
         rescale image to fit the printer width of `Printer.getRowWidth()`.
         """
-
+        # pucgenie: convenience functionality - don't break the whole driver if qrcode dependency is unavailable
+        import qrcode
         self.printImage(qrcode.make(text, border=0), delay=delay, resample=resample)
