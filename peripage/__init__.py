@@ -22,24 +22,10 @@ __license__ = 'GPLv3'
 __copyright__ = 'Copyright (c) GPLv3 2021-2023 bitrate16 (pegasko)'
 
 
+from abc import abstractmethod
 import time
 import typing
 import enum
-try:
-    import bluetooth
-except ModuleNotFoundError as mnfe:
-    from sys import stderr
-    print("Your environment is missing pybluez. Suggestion (mind your venv etc.): python3 -m pip install 'pybluez[ble]'", file=stderr,)
-    raise mnfe
-
-try:
-    import PIL.Image
-    import PIL.ImageOps
-except ModuleNotFoundError as mnfe:
-    from sys import stderr
-    print("Your environment is missing PIL. Suggestion (mind your venv etc.): python3 -m pip install 'Pillow'", file=stderr,)
-    raise mnfe
-
 
 class PrinterTypeSpecs:
     """
@@ -104,7 +90,7 @@ class PrinterType(enum.Enum):
 class PeripageFirmware:
     COMMAND_PREFIX: typing.Final[bytes] = b"\x10\xff"
 
-class Printer:
+class PeripagePrinter:
     """
     This class defines the Peripage interface utility.
     It contains methods wrapping requests with special control opcodes.
@@ -161,17 +147,23 @@ class Printer:
         # buffer used for continuous printing with line wrapping
         self.print_buffer = ''
 
+    def __enter__(self):
+        self.connect()
+        self.reset()
+        return self
+    
+    def __exit__(self, type, value, traceback,):
+        self.disconnect()
+        return False
+
+    @abstractmethod
     def isConnected(self) -> bool:
         """
         Check if printer is connected (socket alive)
         """
+        raise NotImplementedError()
 
-        try:
-            self.sock.getpeername()
-            return True
-        except:
-            return False
-
+    @abstractmethod
     def connect(self) -> None:
         """
         Open a new connection to the printer without checking for existing
@@ -181,11 +173,9 @@ class Printer:
         In order to make printer operate normally, it is required to call
         `reset()` after connecting.
         """
+        raise NotImplementedError()
 
-        self.sock = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
-        self.sock.connect((self.mac, 1))
-        self.sock.settimeout(self.timeout)
-
+    @abstractmethod
     def reconnect(self) -> None:
         """
         Reconnect to the printer with existing connection check.
@@ -193,35 +183,23 @@ class Printer:
         In order to make printer operate normally, it is required to call
         `reset()` after connecting.
         """
+        raise NotImplementedError()
 
-        if self.isConnected():
-            # self.sock.shutdown(socket.SHUT_RDWR)
-            self.sock.close()
-            del self.sock
-
-        self.sock = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
-        self.sock.connect((self.mac, 1))
-        self.sock.settimeout(self.timeout)
-
+    @abstractmethod
     def disconnect(self) -> None:
         """
         Disconnect from the printer.
         """
+        raise NotImplementedError()
 
-        if self.isConnected():
-            # self.sock.shutdown(socket.SHUT_RDWR)
-            self.sock.close()
-            del self.sock
-
+    @abstractmethod
     def setTimeout(self, timeout) -> None:
         """
         Set the bluetooth socket connection recv / send timeout.
         """
+        raise NotImplementedError()
 
-        self.timeout = timeout
-        if self.isConnected():
-            self.sock.settimeout(timeout)
-
+    @abstractmethod
     def tellPrinter(self, byteseq: bytes) -> None:
         """
         Send `bytes` to the printer without response.
@@ -229,9 +207,9 @@ class Printer:
         Arguments:
         * `byteseq` - `bytes` data
         """
+        raise NotImplementedError()
 
-        self.sock.send(byteseq)
-
+    @abstractmethod
     def askPrinter(self, byteseq: bytes, recv_size: int=1024) -> bytes:
         """
         Send `bytes` to the printer with response.
@@ -240,10 +218,9 @@ class Printer:
         * `recv_size` - max size of received chunk
         * `byteseq` - `bytes` data
         """
+        raise NotImplementedError()
 
-        self.sock.send(byteseq)
-        return self.sock.recv(recv_size)
-
+    @abstractmethod
     def listenPrinter(self, recv_size: int=1024) -> bytes:
         """
         Receive data from printer.
@@ -251,9 +228,9 @@ class Printer:
         Arguments:
         * `recv_size` - max size of received chunk
         """
+        raise NotImplementedError()
 
-        return self.sock.recv(recv_size)
-
+    @abstractmethod
     def tellPrinterSeq(self, byteseq: typing.Iterable[bytes]) -> None:
         """
         Send list of `bytes` to the printer without response.
@@ -261,10 +238,9 @@ class Printer:
         Arguments:
         * `byteseq` - `list` of `bytes`
         """
+        raise NotImplementedError()
 
-        for s in byteseq:
-            self.sock.send(s)
-
+    @abstractmethod
     def askPrinterSeq(self, byteseq: typing.Iterable[bytes], recv_size: int=1024) -> bytes:
         """
         Send list of `bytes` to the printer with response.
@@ -273,10 +249,7 @@ class Printer:
         * `recv_size` - max size of received chunk
         * `byteseq` - `list` of `bytes`
         """
-
-        for s in byteseq:
-            self.sock.send(s)
-        return self.sock.recv(recv_size)
+        raise NotImplementedError()
 
     def getDeviceIP(self) -> bytes:
         """
@@ -829,63 +802,3 @@ class Printer:
 
         # Delegate to impl
         self.printRowBytesList([ imagebytes[i:i+self.getRowBytes()] for i in range(0, len(imagebytes), self.getRowBytes()) ], delay=delay)
-
-    def printImage(self, img: PIL.Image.Image, delay=0.01, resample=PIL.Image.Resampling.NEAREST) -> list[str]:
-        """
-        Print PIL Image on this printer with automatic internal to-blackwhite
-        conversion.
-
-        WARNING: In order to prevent the overhead of the printer (and possibly
-        loose some data but to limitations of the in-printer buffer) it is
-        suggested to split image into many vertical pieces and wait a
-        reasonable amount of time to let the printer to cooldown.
-
-        Arguments:
-        * `img` - your pretty PIL Image.
-        * `delay` - delay between printing each row of the image.
-        * `resample` - resampling mode of the image, used to automatically
-        rescale image to fit the printer width of `Printer.getRowWidth()`.
-
-        Returns a list of str with all automagical, optional actions taken.
-        """
-
-        # logger-less feedback
-        warnings = []
-
-        if img.mode != "L":
-            img = img.convert('L')
-        img = PIL.ImageOps.invert(img)
-        if img.size[0] != self.getRowWidth():
-            img = img.resize((self.getRowWidth(), int(self.getRowWidth() / img.size[0] * img.size[1])), resample)
-            warnings.append('RESIZED')
-        img = img.convert('1')
-
-        imgbytes = img.tobytes()
-        self.printImageBytes(imgbytes, delay=delay)
-        return warnings
-
-    def printImageIterator(self, imgiterator: typing.Iterable[PIL.Image.Image], delay: float=0.01):
-        """
-        Iterate over iterator and print out each PIL Image that it returns.
-
-        Arguments:
-        * `rowiterator` - iterator that returns list[bytes].
-        * `delay` - delay between printing each row of the image.
-        """
-
-        for img in imgiterator:
-            self.printImage(img, delay=delay)
-
-    def printQR(self, text: str, delay: float=0.01, resample=PIL.Image.Resampling.NEAREST) -> None:
-        """
-        Generate a QR code from specified string and print it.
-
-        Arguments:
-        * `text` - your pretty text.
-        * `delay` - delay between printing each row of the image.
-        * `resample` - resampling mode of the image, used to automatically
-        rescale image to fit the printer width of `Printer.getRowWidth()`.
-        """
-        # pucgenie: convenience functionality - don't break the whole driver if qrcode dependency is unavailable
-        import qrcode
-        self.printImage(qrcode.make(text, border=0), delay=delay, resample=resample)

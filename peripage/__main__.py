@@ -17,9 +17,6 @@
 
 def main():
     import argparse
-    import sys
-    import peripage
-    import PIL.Image
 
     parser = argparse.ArgumentParser(description='Print on a Peripage printer via bluetooth')
     parser.add_argument(
@@ -81,21 +78,46 @@ def main():
     )
 
     args = parser.parse_args()
+    del parser
 
-    # Open connection
-    printer = peripage.Printer(args.mac, peripage.PrinterType[args.printer])
+    import sys
+    import peripage
+    from peripage import PeripagePrinter, PrinterType
+    try:
+        import peripage.PIL
+    except ModuleNotFoundError as mnfe:
+        from sys import stderr
+        print("Your environment is missing PIL. Suggestion (mind your venv etc.): python3 -m pip install 'Pillow'", file=stderr,)
+        #raise mnfe
+    
+    factory: PeripagePrinter = None
+    for factory_module, factory_impl, notfound_message in [
+        ('.bleak_impl', 'PeripageBleakPrinter', "Your environment is missing bleak. Suggestion (mind your venv etc.): python3 -m pip install 'bleak'",),
+        ('.bluez_impl', 'PeripageBluezPrinter', "Your environment is missing pybluez. Suggestion (mind your venv etc.): python3 -m pip install 'PyBluez-bitalino'",),
+        ]:
+        try:
+            exec(f"from {factory_module} import {factory_impl}")
+            factory = eval(factory_impl)
+        except ModuleNotFoundError as mnfe:
+            from sys import stderr
+            print(notfound_message, file=stderr,)
+    else:
+        print("No loadable communication layer found!", file=stderr,)
+        sys.exit(2)
+        
+    printer = factory(args.mac, PrinterType[args.printer])
     printer.connect()
     printer.reset()
 
     # Act based on args
-    if 'introduce' in args and args.introduce:
+    if getattr(args, 'introduce', False,):
 
         # print('Hello, my name is Harold..')
         print(printer.getDeviceFull().decode('ascii'))
         printer.disconnect()
         sys.exit(0)
 
-    elif 'stream' in args and args.stream:
+    elif getattr(args, 'stream', False,):
 
         printer.setConcentration(args.concentration)
 
@@ -116,7 +138,7 @@ def main():
 
         sys.exit(0)
 
-    elif 'text' in args and args.text is not None:
+    elif getattr(args, 'text', None,) is not None:
 
         printer.setConcentration(args.concentration)
 
@@ -133,14 +155,16 @@ def main():
 
         sys.exit(0)
 
-    elif 'image' in args and args.image is not None:
+    elif getattr(args, 'image', None,) is not None:
 
         printer.setConcentration(args.concentration)
 
         try:
+            import PIL.Image
             img = PIL.Image.open(args.image)
         except:
-            print(f'Failed to open image { args.image }')
+            print(f'Failed to open image { args.image }', file=sys.stderr,)
+            sys.exit(1)
 
         printer.printImage(img)
 
@@ -151,7 +175,7 @@ def main():
 
         sys.exit(0)
 
-    elif 'qr' in args and args.qr is not None:
+    elif getattr(args, 'qr', None,) is not None:
 
         printer.setConcentration(args.concentration)
 

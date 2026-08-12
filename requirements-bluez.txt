@@ -1,0 +1,1 @@
+PyBluez-bitalino>=0.30
