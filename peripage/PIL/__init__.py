@@ -16,7 +16,7 @@ import typing
 from .. import PeripagePrinter
 
 @add_method(PeripagePrinter)
-def printImage(self, img: PIL.Image.Image, delay=0.01, resample=PIL.Image.Resampling.NEAREST) -> list[str]:
+def printImage(self: PeripagePrinter, img: PIL.Image.Image, delay=0.01, resample=PIL.Image.Resampling.NEAREST) -> list[str]:
     """
     Print PIL Image on this printer with automatic internal to-blackwhite
     conversion.
@@ -51,7 +51,7 @@ def printImage(self, img: PIL.Image.Image, delay=0.01, resample=PIL.Image.Resamp
     return warnings
 
 @add_method(PeripagePrinter)
-def printImageIterator(self, imgiterator: typing.Iterable[PIL.Image.Image], delay: float=0.01):
+def printImageIterator(self: PeripagePrinter, imgiterator: typing.Iterable[PIL.Image.Image], delay: float=0.01):
     """
     Iterate over iterator and print out each PIL Image that it returns.
 
@@ -64,7 +64,7 @@ def printImageIterator(self, imgiterator: typing.Iterable[PIL.Image.Image], dela
         self.printImage(img, delay=delay)
 
 @add_method(PeripagePrinter)
-def printQR(self, text: str, delay: float=0.01, resample=PIL.Image.Resampling.NEAREST) -> None:
+def printQR(self: PeripagePrinter, text: str, delay: float=0.01, resample=PIL.Image.Resampling.NEAREST) -> None:
     """
     Generate a QR code from specified string and print it.
 

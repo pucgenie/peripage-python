@@ -427,7 +427,7 @@ class PeripagePrinter:
         `Printer.is_safe_ascii()` check.
         """
 
-        request = PeripageFirmware.COMMAND_PREFIX + b"\x20\xf4" + Printer.filter_ascii(serial_number).encode('ascii') + b'\0'
+        request = PeripageFirmware.COMMAND_PREFIX + b"\x20\xf4" + PeripagePrinter.filter_ascii(serial_number).encode('ascii') + b'\0'
 
         if wait:
             return self.askPrinter(request)
@@ -578,7 +578,7 @@ class PeripagePrinter:
         * `delay` - delay between lines submission, seconds
         """
 
-        text = Printer.filter_ascii(text)
+        text = PeripagePrinter.filter_ascii(text)
 
         # Check for empty and print out newline
         text = self.print_buffer + text
