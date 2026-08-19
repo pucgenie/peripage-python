@@ -90,7 +90,30 @@ class PrinterType(enum.Enum):
         self.spec = spec
 
 class PeripageFirmware:
-    COMMAND_PREFIX: typing.Final[bytes] = b"\x10\xff"
+    """
+    x10 == DLE
+    x11 == DC1
+    x12 == DC2
+    x20 == space
+    x30 == 0
+    x50 == P
+    x70 == p
+    """
+    COMMAND_PREFIX: typing.Final[bytes]           = b"\x10\xff"
+
+    QUERY_FIRMWARE_VERSION: typing.Final[bytes]   = b"\x20\xf1"
+    QUERY_DEVICE_NAME: typing.Final[bytes]        = b"\x30\x11"
+    QUERY_SERIAL_NUMBER: typing.Final[bytes]      = b"\x20\xf2"
+    QUERY_BATTERY_PERCENTAGE: typing.Final[bytes] = b"\x50\xf1"
+    QUERY_HARDWARE: typing.Final[bytes]           = b"\x30\x10"
+    QUERY_MAC_ADDRESS: typing.Final[bytes]        = b"\x30\x12"
+    QUERY_ALL: typing.Final[bytes]                = b"\x70\xf1\0"
+    
+    RESET: typing.Final[bytes]                    = bytes.fromhex('fe01000000000000000000000000')
+    PRINT_PIXEL_ROW: typing.Final[bytes]          = bytes.fromhex('1d763000')
+    SET_SERIAL_NUMBER: typing.Final[bytes]        = b"\x20\xf4"
+    SET_CONCENTRATION: typing.Final[bytes]        = b"\x10\0"
+    SET_POWER_TIMEOUT: typing.Final[bytes]        = b'\x12'
 
 class PeripagePrinter:
     """
@@ -249,7 +272,7 @@ class PeripagePrinter:
 
         Example: Peripage A6+ returns `PeriPage+DF7A`.
         """
-        device_name = await self.askPrinter(PeripageFirmware.COMMAND_PREFIX + b"\x30\x11")
+        device_name = await self.askPrinter(PeripageFirmware.COMMAND_PREFIX + PeripageFirmware.QUERY_DEVICE_NAME)
         assert len(device_name) == 1
         return device_name[0]
 
@@ -263,7 +286,7 @@ class PeripagePrinter:
 
         Example: Peripage A6+ returns `A6491571121`.
         """
-        device_serial = await self.askPrinter(PeripageFirmware.COMMAND_PREFIX + b"\x20\xf2")
+        device_serial = await self.askPrinter(PeripageFirmware.COMMAND_PREFIX + PeripageFirmware.QUERY_SERIAL_NUMBER)
         assert len(device_serial) == 1
         return device_serial[0]
 
@@ -277,7 +300,7 @@ class PeripagePrinter:
 
         Example: Peripage A6+ returns `V2.11_304dpi`.
         """
-        device_firmware = await self.askPrinter(PeripageFirmware.COMMAND_PREFIX + b"\x20\xf1")
+        device_firmware = await self.askPrinter(PeripageFirmware.COMMAND_PREFIX + PeripageFirmware.QUERY_FIRMWARE_VERSION)
         assert len(device_firmware) == 1
         return device_firmware[0]
 
@@ -291,7 +314,7 @@ class PeripagePrinter:
 
         Example: Peripage A6+ returns `\\x00@` (equals to `bytes[2] = { 0, 64 }`).
         """
-        device_battery_state = await self.askPrinter(PeripageFirmware.COMMAND_PREFIX + b"\x50\xf1")
+        device_battery_state = await self.askPrinter(PeripageFirmware.COMMAND_PREFIX + PeripageFirmware.QUERY_BATTERY_PERCENTAGE)
         assert len(device_battery_state) == 1
         return int(device_battery_state[1])
 
@@ -306,7 +329,7 @@ class PeripagePrinter:
         Example: Peripage A6+ returns `BR2141e-s(A02)_B9_20190815_r3460`.
         `BR2141e-s` chip with a pile of ascii letters.
         """
-        device_hardware = await self.askPrinter(PeripageFirmware.COMMAND_PREFIX + b"\x30\x10")
+        device_hardware = await self.askPrinter(PeripageFirmware.COMMAND_PREFIX + PeripageFirmware.QUERY_HARDWARE)
         assert len(device_hardware) == 1
         return device_hardware[0]
 
@@ -322,7 +345,7 @@ class PeripagePrinter:
         (equals to `00:F5:73:25:AC:9F`).
         """
 
-        device_mac = await self.askPrinter(PeripageFirmware.COMMAND_PREFIX + b"\x30\x12")
+        device_mac = await self.askPrinter(PeripageFirmware.COMMAND_PREFIX + PeripageFirmware.QUERY_MAC_ADDRESS)
         assert len(device_mac) == 1
         return device_mac[0]
 
@@ -344,7 +367,7 @@ class PeripagePrinter:
         in-printer ASCII buffer.
         """
 
-        device_full = await self.askPrinter(PeripageFirmware.COMMAND_PREFIX + b"\x70\xf1\0")
+        device_full = await self.askPrinter(PeripageFirmware.COMMAND_PREFIX + PeripageFirmware.QUERY_ALL)
         assert len(device_full) == 1
         return device_full[0]
 
@@ -414,7 +437,7 @@ class PeripagePrinter:
         if not PeripagePrinter.is_safe_ascii(serial_number):
             raise ValueError("serial_number needs to be a 7-bit ASCII-compatible string")
 
-        request = PeripageFirmware.COMMAND_PREFIX + b"\x20\xf4" + serial_number.encode('ascii') + b'\0'
+        request = PeripageFirmware.COMMAND_PREFIX + PeripageFirmware.SET_SERIAL_NUMBER + serial_number.encode('ascii') + b'\0'
 
         if wait:
             return await self.askPrinter(request)
@@ -437,7 +460,7 @@ class PeripagePrinter:
         """
 
         timeout = max(min(0xfff0, timeout), 0x0001)
-        request = PeripageFirmware.COMMAND_PREFIX + b'0x12' + int.to_bytes(timeout, 2, 'big')
+        request = PeripageFirmware.COMMAND_PREFIX + PeripageFirmware.SET_POWER_TIMEOUT + int.to_bytes(timeout, 2, 'big')
 
         if wait:
             return await self.askPrinter(request)
@@ -459,15 +482,15 @@ class PeripagePrinter:
         """
 
         if 0 <= concentration <= 2:
-            request = b"\x10\0" + concentration.to_bytes()
+            request = PeripageFirmware.COMMAND_PREFIX + PeripageFirmware.SET_CONCENTRATION + concentration.to_bytes()
             self.concentration = concentration
         else:
             raise IndexError("concentration value from range `(0, 1, 2)`")
 
         if wait:
-            return await self.askPrinter(PeripageFirmware.COMMAND_PREFIX + request)
+            return await self.askPrinter(request)
         else:
-            await self.tellPrinter(PeripageFirmware.COMMAND_PREFIX + request)
+            await self.tellPrinter(request)
 
     async def reset(self) -> None:
         """
@@ -478,7 +501,7 @@ class PeripagePrinter:
         Request: `10fffe01+000000000000000000000000`.
         """
 
-        await self.tellPrinter(PeripageFirmware.COMMAND_PREFIX + bytes.fromhex('fe01000000000000000000000000'))
+        await self.tellPrinter(PeripageFirmware.COMMAND_PREFIX + PeripageFirmware.RESET)
 
     async def printBreak(self, size: int=0x40) -> None:
         """
@@ -644,7 +667,7 @@ class PeripagePrinter:
             await self.tellPrinter(b'\n')
             self.print_buffer = ''
 
-    async def printRow(self, rowbytes: bytes, delay: float=0.01) -> None:
+    async def printRow(self, rowbytes: bytes, delay: float=0.008,) -> None:
         """
         Send bytes representing a single image row in binary black/white mode.
         If amount of bydes exceedes the `Printer.getRowBytes()` constant, input
@@ -673,13 +696,13 @@ class PeripagePrinter:
         self.reset()
 
         # Notify printer about incomming $expectedLen bytes row
-        request = bytes.fromhex('1d763000') + int.to_bytes(self.getRowBytes(), 1, 'big') + bytes.fromhex('000100') + rowbytes
+        request = PeripageFirmware.PRINT_PIXEL_ROW + int.to_bytes(self.getRowBytes(), 1, 'big') + bytes.fromhex('000100') + rowbytes
         await self.tellPrinter(request)
         await asyncio.sleep(delay)
 
         # We're done here
 
-    async def printRowBytesList(self, rowbytes: typing.Iterable[bytes], delay: float=0.01) -> None:
+    async def printRowBytesList(self, rowbytes: typing.Iterable[bytes], delay: float=0.008,) -> None:
         """
         Send an array of bytes representing a multiple image rows in binary
         black/white mode. If amount of bydes per row exceedes the
@@ -717,7 +740,7 @@ class PeripagePrinter:
 
             #                 1d763000    30                    00    01                     00
             # Send preamble: `1d763000` + row_bytes:bytes[1] + `00` + chunk_size:bytes[1] + `00`
-            request = b"\x1d\x76\x30\0" + int.to_bytes(self.getRowBytes(), 1, 'big') + b'\0' + int.to_bytes(len(chunk), 1, 'big') + b'\0'
+            request = PeripageFirmware.PRINT_PIXEL_ROW + int.to_bytes(self.getRowBytes(), 1, 'big') + b'\0' + int.to_bytes(len(chunk), 1, 'big') + b'\0'
 
             # Flush preamble
             await self.tellPrinter(request)
@@ -735,7 +758,7 @@ class PeripagePrinter:
                 # pucgenie: alternatively introduce delay_bulk ?
                 await asyncio.sleep(delay * max(1, self.concentration))
 
-    async def printRowBytesIterator(self, rowiterator: typing.Iterable[bytes], delay: float=0.01) -> None:
+    async def printRowBytesIterator(self, rowiterator: typing.Iterable[bytes], delay: float=0.008,) -> None:
         """
         Iterate over the given iterator and print out all produced rows. This
         method is very slow as it required printer to oftenly switch on/off
@@ -751,7 +774,7 @@ class PeripagePrinter:
         for r in rowiterator:
             await self.printRow(r, delay=delay)
 
-    async def printRowChunksIterator(self, rowiterator: typing.Iterable[list[bytes]], delay: float=0.01) -> None:
+    async def printRowChunksIterator(self, rowiterator: typing.Iterable[list[bytes]], delay: float=0.008,) -> None:
         """
         Iterate over the given iterator and print out all produced chunks of
         rows. One chunk of rows is a list of bytes where each bytes define the
@@ -767,7 +790,7 @@ class PeripagePrinter:
         for chunk in rowiterator:
             await self.printRowBytesList(chunk, delay=delay)
 
-    async def printImageBytes(self, imagebytes: bytes, delay: float=0.01) -> None:
+    async def printImageBytes(self, imagebytes: bytes, delay: float=0.008,) -> None:
         """
         Send an bytes representing single-line encoded image. For example,
         `[0xff000000, 0x00ff0000, 0x0000ff00, 0x000000ff]` is encoded as
@@ -790,4 +813,4 @@ class PeripagePrinter:
             return
 
         # Delegate to impl
-        await self.printRowBytesList([ imagebytes[i:i+self.getRowBytes()] for i in range(0, len(imagebytes), self.getRowBytes()) ], delay=delay)
+        await self.printRowBytesList([ imagebytes[i:i+self.getRowBytes()] for i in range(0, len(imagebytes), self.getRowBytes()) ], delay=delay,)

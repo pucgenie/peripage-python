@@ -13,7 +13,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-
+import sys
 
 async def main():
     import argparse
@@ -82,7 +82,6 @@ async def main():
     args = parser.parse_args()
     del parser
 
-    import sys
     try:
         import peripage.PIL
     except ModuleNotFoundError as mnfe:
@@ -92,18 +91,19 @@ async def main():
     
     import re
     if re.fullmatch("..:..:..:..:..:..", args.mac,) is not None:
-        factory: PeripagePrinter = None
+        factory: list[PeripagePrinter] = [None,]
         import importlib
         for factory_module, factory_impl, notfound_message in [
             ('.bleak_impl', 'PeripageBleakPrinter', "Your environment is missing bleak. Suggestion (mind your venv etc.): python3 -m pip install 'bleak'",),
             ('.bluez_impl', 'PeripageBluezPrinter', "Your environment is missing pybluez. Suggestion (mind your venv etc.): python3 -m pip install 'PyBluez-bitalino'",),
             ]:
             try:
-                from .bleak_impl import PeripageBleakPrinter
-                factory = PeripageBleakPrinter
+                exec(f"""from {factory_module} import {factory_impl}
+factory[0] = {factory_impl}""", globals=globals(), locals=locals(),)
+                #from .bleak_impl import PeripageBleakPrinter
+                #exec(f"""""", globals=globals(), locals=locals(),)
                 #factory = importlib.import_module(factory_impl, package=factory_module,)
-                #exec(f"""from {factory_module} import {factory_impl} as PeripageXPrinter""")
-                #factory = PeripageXPrinter
+                assert factory[0] is not None
                 break
             except ModuleNotFoundError as mnfe:
                 from sys import stderr
@@ -112,7 +112,7 @@ async def main():
             print("No loadable communication layer found!", file=sys.stderr,)
             sys.exit(2)
             
-        printer = factory(args.mac, PrinterType[args.printer])
+        printer = factory[0](args.mac, PrinterType[args.printer])
         #print("factory:", factory,)
         #printer = PeripageXPrinter(args.mac, PrinterType[args.printer])
     else:
@@ -121,8 +121,7 @@ async def main():
         printer0: BLEDevice = await PeripageBleakPrinter.discover_devices(PeripageBleakPrinter)
         if printer0 is None:
             sys.exit(0)
-        # FIXME: Don't assume Peripage A6 as printer type.
-        printer = PeripageBleakPrinter(printer0.address, PrinterType.A6,)
+        printer = PeripageBleakPrinter(printer0.address, PrinterType[args.printer],)
 
     await printer.connect()
     await printer.reset()
@@ -214,4 +213,8 @@ async def main():
 
 if __name__ == '__main__':
     import asyncio
+    #if sys.platform == "win32":
+    #    # pucgenie: I hope this fixes "service not found" on Windows. Maybe we need to use bleakclient.pair() when connecting on Windows instead...
+    #    asyncio.run(main(), loop_factory=asyncio.SelectorEventLoop,)
+    #else:
     asyncio.run(main())

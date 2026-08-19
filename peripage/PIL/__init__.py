@@ -1,3 +1,19 @@
+# peripage-python - python library for peripage thermal printers
+# Copyright (C) 2020-2023  bitrate16 (pegasko)
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 """
 Enhances PeripagePrinter class 
 """
@@ -16,7 +32,7 @@ import typing
 from .. import PeripagePrinter
 
 @add_method(PeripagePrinter)
-async def printImage(self: PeripagePrinter, img: PIL.Image.Image, delay=0.01, resample=PIL.Image.Resampling.NEAREST,) -> list[str]:
+async def printImage(self: PeripagePrinter, img: PIL.Image.Image, delay: float=0.008, resample: PIL.Image.Resampling=PIL.Image.Resampling.NEAREST,) -> list[str]:
     """
     Print PIL Image on this printer with automatic internal to-blackwhite
     conversion.
@@ -38,20 +54,22 @@ async def printImage(self: PeripagePrinter, img: PIL.Image.Image, delay=0.01, re
     # logger-less feedback
     warnings = []
 
-    if img.mode != "L":
+    if img.mode not in ["L", "1",]:
         img = img.convert('L')
     img = PIL.ImageOps.invert(img)
     if img.size[0] != self.getRowWidth():
         img = img.resize((self.getRowWidth(), int(self.getRowWidth() / img.size[0] * img.size[1])), resample)
         warnings.append('RESIZED')
-    img = img.convert('1')
+    if img.mode != "1":
+        # pucgenie: TODO: Double vertical grayscale resolution by also generating a row-by-row list of concentration (=saturation, contrast, heat) values. Rows containing edge-pixels only get lower concentration, all others get full concentration.
+        img = img.convert('1')
 
     imgbytes = img.tobytes()
     await self.printImageBytes(imgbytes, delay=delay,)
     return warnings
 
 @add_method(PeripagePrinter)
-async def printImageIterator(self: PeripagePrinter, imgiterator: typing.Iterable[PIL.Image.Image], delay: float=0.01,):
+async def printImageIterator(self: PeripagePrinter, imgiterator: typing.Iterable[PIL.Image.Image], delay: float=0.008,):
     """
     Iterate over iterator and print out each PIL Image that it returns.
 
@@ -64,7 +82,7 @@ async def printImageIterator(self: PeripagePrinter, imgiterator: typing.Iterable
         await self.printImage(img, delay=delay)
 
 @add_method(PeripagePrinter)
-async def printQR(self: PeripagePrinter, text: str, delay: float=0.01, resample=PIL.Image.Resampling.NEAREST,) -> None:
+async def printQR(self: PeripagePrinter, text: str, delay: float=0.008, resample=PIL.Image.Resampling.NEAREST,) -> None:
     """
     Generate a QR code from specified string and print it.
 

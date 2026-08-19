@@ -1,3 +1,20 @@
+# peripage-python - python library for peripage thermal printers
+# Copyright (C) 2020-2023  bitrate16 (pegasko)
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+# Manjaro Linux test:
 """
 Found: C0:15:83:15:1F:78 "PeriPage_1F78_BLE"
 Connected: True
@@ -39,6 +56,7 @@ BleakClient, C0:15:83:15:1F:78
 
     [Descriptor] 00002902-0000-1000-8000-00805f9b34fb (Handle: 44): Client Characteristic Configuration, Value: bytearray(b'\x00\x00')
 """
+# Windows test: There are no service UUIDs.
 
 import asyncio
 from types import TracebackType
@@ -140,8 +158,8 @@ class PeripageBleakPrinter(PeripagePrinter):
         if self.client is not None:
             print("Client already connected", file=stderr,)
             return
-
-        self.client = BleakClient(self.mac, services=[UART_SERVICE_UUID,],)
+        # pucgenie: Can't use services=[UART_SERVICE_UUID,], because the UUID is not fixed.
+        self.client = BleakClient(self.mac,)
         await self.client.connect()
         await self._notifier_subscribe()
 
