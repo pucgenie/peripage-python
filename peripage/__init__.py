@@ -210,44 +210,13 @@ class PeripagePrinter:
         raise NotImplementedError()
 
     @abstractmethod
-    def askPrinter(self, byteseq: bytes, recv_size: int=1024) -> bytes:
+    def askPrinter(self, byteseq: bytes,) -> list[bytes]:
         """
         Send `bytes` to the printer with response.
 
         Arguments:
         * `recv_size` - max size of received chunk
         * `byteseq` - `bytes` data
-        """
-        raise NotImplementedError()
-
-    @abstractmethod
-    def listenPrinter(self, recv_size: int=1024) -> bytes:
-        """
-        Receive data from printer.
-
-        Arguments:
-        * `recv_size` - max size of received chunk
-        """
-        raise NotImplementedError()
-
-    @abstractmethod
-    def tellPrinterSeq(self, byteseq: typing.Iterable[bytes]) -> None:
-        """
-        Send list of `bytes` to the printer without response.
-
-        Arguments:
-        * `byteseq` - `list` of `bytes`
-        """
-        raise NotImplementedError()
-
-    @abstractmethod
-    def askPrinterSeq(self, byteseq: typing.Iterable[bytes], recv_size: int=1024) -> bytes:
-        """
-        Send list of `bytes` to the printer with response.
-
-        Arguments:
-        * `recv_size` - max size of received chunk
-        * `byteseq` - `list` of `bytes`
         """
         raise NotImplementedError()
 
@@ -261,8 +230,9 @@ class PeripagePrinter:
 
         Example: Peripage A6+ returns `IP-300`.
         """
-
-        return self.askPrinter(PeripageFirmware.COMMAND_PREFIX + b"\x20\xf0")
+        device_ip = self.askPrinter(PeripageFirmware.COMMAND_PREFIX + b"\x20\xf0")
+        assert len(device_ip) == 1
+        return device_ip[0]
 
     def getDeviceName(self) -> bytes:
         """
@@ -274,8 +244,9 @@ class PeripagePrinter:
 
         Example: Peripage A6+ returns `PeriPage+DF7A`.
         """
-
-        return self.askPrinter(PeripageFirmware.COMMAND_PREFIX + b"\x30\x11")
+        device_name = self.askPrinter(PeripageFirmware.COMMAND_PREFIX + b"\x30\x11")
+        assert len(device_name) == 1
+        return device_name
 
     def getDeviceSerialNumber(self) -> bytes:
         """
@@ -287,8 +258,9 @@ class PeripagePrinter:
 
         Example: Peripage A6+ returns `A6491571121`.
         """
-
-        return self.askPrinter(PeripageFirmware.COMMAND_PREFIX + b"\x20\xf2")
+        device_serial = self.askPrinter(PeripageFirmware.COMMAND_PREFIX + b"\x20\xf2")
+        assert len(device_serial) == 1
+        return device_serial
 
     def getDeviceFirmware(self) -> bytes:
         """
@@ -300,8 +272,9 @@ class PeripagePrinter:
 
         Example: Peripage A6+ returns `V2.11_304dpi`.
         """
-
-        return self.askPrinter(PeripageFirmware.COMMAND_PREFIX + b"\x20\xf1")
+        device_firmware = self.askPrinter(PeripageFirmware.COMMAND_PREFIX + b"\x20\xf1")
+        assert len(device_firmware) == 1
+        return device_firmware
 
     def getDeviceBattery(self) -> int:
         """
@@ -313,7 +286,9 @@ class PeripagePrinter:
 
         Example: Peripage A6+ returns `\\x00@` (equals to `bytes[2] = { 0, 64 }`).
         """
-        return int(self.askPrinter(PeripageFirmware.COMMAND_PREFIX + b"\x50\xf1")[1])
+        device_battery_state = self.askPrinter(PeripageFirmware.COMMAND_PREFIX + b"\x50\xf1")
+        assert len(device_battery_state) == 1
+        return int(device_battery_state[1])
 
     def getDeviceHardware(self) -> bytes:
         """

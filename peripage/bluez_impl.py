@@ -101,7 +101,7 @@ class PeripageBluezPrinter(PeripagePrinter):
 
         self.sock.send(byteseq)
 
-    def askPrinter(self, byteseq: bytes, recv_size: int=1024) -> bytes:
+    def askPrinter(self, byteseq: bytes, recv_size: int=1024) -> list[bytes]:
         """
         Send `bytes` to the printer with response.
 
@@ -111,9 +111,9 @@ class PeripageBluezPrinter(PeripagePrinter):
         """
 
         self.sock.send(byteseq)
-        return self.sock.recv(recv_size)
+        return [self.sock.recv(recv_size)]
 
-    def listenPrinter(self, recv_size: int=1024) -> bytes:
+    def listenPrinter(self, recv_size: int=1024) -> list[bytes]:
         """
         Receive data from printer.
 
@@ -121,7 +121,7 @@ class PeripageBluezPrinter(PeripagePrinter):
         * `recv_size` - max size of received chunk
         """
 
-        return self.sock.recv(recv_size)
+        return [self.sock.recv(recv_size)]
 
     def tellPrinterSeq(self, byteseq: typing.Iterable[bytes]) -> None:
         """
@@ -134,7 +134,7 @@ class PeripageBluezPrinter(PeripagePrinter):
         for s in byteseq:
             self.sock.send(s)
 
-    def askPrinterSeq(self, byteseq: typing.Iterable[bytes], recv_size: int=1024) -> bytes:
+    def askPrinterSeq(self, byteseq: typing.Iterable[bytes], recv_size: int=1024) -> list[bytes]:
         """
         Send list of `bytes` to the printer with response.
 
@@ -145,4 +145,4 @@ class PeripageBluezPrinter(PeripagePrinter):
 
         for s in byteseq:
             self.sock.send(s)
-        return self.sock.recv(recv_size)
+        return [self.sock.recv(recv_size)]
