@@ -41,70 +41,76 @@ BleakClient, C0:15:83:15:1F:78
 """
 
 import asyncio
+from types import TracebackType
 
 try:
     from bleak import BleakScanner, BleakClient
 except ModuleNotFoundError as mnfe:
     from sys import stderr
-    print("Your environment is missing pybluez. Suggestion (mind your venv etc.): python3 -m pip install 'pybluez[ble]'", file=stderr,)
+    print("Your environment is missing bleak (bluetooth low-energy (BLE) library). Suggestion (mind your venv etc.): python3 -m pip install 'bleak'", file=stderr,)
     raise mnfe
 import re
 import typing
 
-class BluetoothDevice(typing.NamedTuple):
-    address: str  # Die Bluetooth-MAC-Adresse (z. B. "00:11:22:33:FF:EE")
-    name: str
+from peripage import PrinterType
+from bleak.backends.device import BLEDevice
+from abc import abstractmethod
 
-CHARACTERISTIC_UUID = '49535343-8841-43f4-a8d4-ecbe34729bb3' # template said: "00002a37-0000-1000-8000-00805f9b34fb"
+UART_SERVICE_UUID = '49535343-fe7d-4ae5-8fa9-9fafd205e455'
+# template said: "00002a37-0000-1000-8000-00805f9b34fb"
+TX_CHARACTERISTIC_UUID = '49535343-8841-43f4-a8d4-ecbe34729bb3'
+RX_CHARACTERISTIC_UUID = '49535343-1e4d-4bd9-ba61-23c647249616'
+TX_SYNC_CHARACTERISTIC_UUID = '49535343-1e4d-4bd9-ba61-23c647249616'
 
-async def main(address=None,):
-    printer = None
-    if address is None:
-        devices = await BleakScanner.discover()
-        peripage_matcher = re.compile("PeriPage_...._BLE")
-        for d in devices:
-            if d.name is not None and peripage_matcher.fullmatch(d.name):
-                print(f"""Found: {d.address} "{d.name}" """)
-                printer = d
-    else:
-        printer = BluetoothDevice(address, None,)
-    if printer is not None:
-        async with BleakClient(printer.address, services=['49535343-fe7d-4ae5-8fa9-9fafd205e455', CHARACTERISTIC_UUID,],) as client:
-            print(f"Connected: {client.is_connected}")
-            print(client)
-            print(dir(client))
-            for service in client.services:
-                print(service)
-                print(dir(service))
-                for character in service.characteristics:
-                    print(character)
-                    print(dir(character))
-            # Writing data
-            #await client.write_gatt_char(CHARACTERISTIC_UUID, b"Hello World")
+from peripage import PeripagePrinter
+class PeripageBleakPrinter(PeripagePrinter):
 
-            # Reading data
-            #data = await client.read_gatt_char(CHARACTERISTIC_UUID)
-            #print(data)
-    else:
-        print("Printer not found.")
+    def __init__(self, mac: str, printer_type: PrinterType, timeout: float=1.0,):
+        super().__init__(mac, printer_type, timeout,)
+        self.client: BleakClient = None
+        self.rx_data = []
 
-asyncio.run(main(address='C0:15:83:15:1F:78'))
+    def rx_notification_handler(self, sender: int, data: bytearray,):
+        self.rx_data.append(data)
+        print(f"Received from {sender}: {data}")
 
+    @abstractmethod
+    async def discover_devices(cls, address=None,) -> BLEDevice:
+        printer: BLEDevice = None
+        if address is None:
+            """Discover (probably) compatible devices"""
+            peripage_matcher = re.compile("PeriPage_...._BLE")
+            for d in await BleakScanner.discover():
+                if d.name is not None and peripage_matcher.fullmatch(d.name):
+                    print(f"""Found: {d.address} "{d.name}" """)
+                    if input(f"""Use {d.name} [y] or find other devices [any]?""") == 'y':
+                        printer = d
+                        break
+                else:
+                    print(f"""Unknown device: {d.address} "{d.name}" """)
+        else:
+            printer = BLEDevice(address, None, None,)
+        if printer is not None:
+            """List available services"""
+            async with BleakClient(printer.address,) as client:
+                print(f"Connected: {client.is_connected}")
+                print(client)
+                print(dir(client))
+                for service in client.services:
+                    print(service)
+                    print(dir(service))
+                    for character in service.characteristics:
+                        print(character)
+                        print(dir(character))
+                # Writing data
+                #await client.write_gatt_char(CHARACTERISTIC_UUID, b"Hello World")
 
-def notification_handler(sender: int, data: bytearray):
-    print(f"Received from {sender}: {data}")
-
-async def subscribe(address):
-    async with BleakClient(address) as client:
-        # Subscribe to updates
-        await client.start_notify(CHARACTERISTIC_UUID, notification_handler)
-        # Keep the script running to receive data
-        await asyncio.sleep(60.0) 
-        await client.stop_notify(CHARACTERISTIC_UUID)
-
-
-from peripage import AbstractPrinter
-class PeripageBleakPrinter(AbstractPrinter):
+                # Reading data
+                #data = await client.read_gatt_char(CHARACTERISTIC_UUID)
+                #print(data)
+        else:
+            print("Printer not found.")
+        return printer
 
     def isConnected(self) -> bool:
         """
@@ -112,12 +118,17 @@ class PeripageBleakPrinter(AbstractPrinter):
         """
 
         try:
-            self.sock.getpeername()
-            return True
+            return self.client is not None and self.client.is_connected()
         except:
             return False
 
-    def connect(self) -> None:
+    async def _notifier_subscribe(self):
+        await self.client.start_notify(RX_CHARACTERISTIC_UUID, self.rx_notification_handler,)
+
+    async def _notifier_unsubscribe(self):
+        await self.client.stop_notify(RX_CHARACTERISTIC_UUID)
+
+    async def connect(self) -> None:
         """
         Open a new connection to the printer without checking for existing
         connection. In case of malfunction and/or twice connecting to the same
@@ -126,12 +137,25 @@ class PeripageBleakPrinter(AbstractPrinter):
         In order to make printer operate normally, it is required to call
         `reset()` after connecting.
         """
+        if self.client is not None:
+            print("Client already connected", file=stderr,)
+            return
 
-        self.sock = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
-        self.sock.connect((self.mac, 1))
-        self.sock.settimeout(self.timeout)
+        self.client = BleakClient(self.mac, services=[UART_SERVICE_UUID,],)
+        await self.client.connect()
+        await self._notifier_subscribe()
 
-    def reconnect(self) -> None:
+    async def disconnect(self) -> None:
+        """
+        Disconnect from the printer.
+        """
+
+        if self.isConnected():
+            await self._notifier_unsubscribe()
+            await self.client.disconnect()
+            self.client = None
+
+    async def reconnect(self) -> None:
         """
         Reconnect to the printer with existing connection check.
 
@@ -139,35 +163,18 @@ class PeripageBleakPrinter(AbstractPrinter):
         `reset()` after connecting.
         """
 
-        if self.isConnected():
-            # self.sock.shutdown(socket.SHUT_RDWR)
-            self.sock.close()
-            del self.sock
+        await self.disconnect()
 
-        self.sock = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
-        self.sock.connect((self.mac, 1))
-        self.sock.settimeout(self.timeout)
+        await self.connect()
 
-    def disconnect(self) -> None:
-        """
-        Disconnect from the printer.
-        """
-
-        if self.isConnected():
-            # self.sock.shutdown(socket.SHUT_RDWR)
-            self.sock.close()
-            del self.sock
-
-    def setTimeout(self, timeout) -> None:
+    def setTimeout(self, timeout,) -> None:
         """
         Set the bluetooth socket connection recv / send timeout.
         """
 
         self.timeout = timeout
-        if self.isConnected():
-            self.sock.settimeout(timeout)
 
-    def tellPrinter(self, byteseq: bytes) -> None:
+    async def tellPrinter(self, byteseq: bytes,) -> None:
         """
         Send `bytes` to the printer without response.
 
@@ -175,9 +182,9 @@ class PeripageBleakPrinter(AbstractPrinter):
         * `byteseq` - `bytes` data
         """
 
-        self.sock.send(byteseq)
+        await self.client.write_gatt_char(TX_CHARACTERISTIC_UUID, byteseq, False,)
 
-    def askPrinter(self, byteseq: bytes, recv_size: int=1024) -> bytes:
+    async def askPrinter(self, byteseq: bytes, recv_size: int=1024,) -> list[bytes]:
         """
         Send `bytes` to the printer with response.
 
@@ -185,11 +192,20 @@ class PeripageBleakPrinter(AbstractPrinter):
         * `recv_size` - max size of received chunk
         * `byteseq` - `bytes` data
         """
+        #await self._notifier_unsubscribe()
+        if len(self.rx_data) > 0:
+            print(f"Dropped RX data segments: {len(self.rx_data)}")
+        self.rx_data.clear()
 
-        self.sock.send(byteseq)
-        return self.sock.recv(recv_size)
+        await self.client.write_gatt_char(TX_SYNC_CHARACTERISTIC_UUID, byteseq, True,)
+        await asyncio.sleep(self.timeout)
 
-    def listenPrinter(self, recv_size: int=1024) -> bytes:
+        #await self._notifier_subscribe()
+        ret = self.rx_data
+        self.rx_data = []
+        return ret
+
+    def listenPrinter(self) -> list[bytes]:
         """
         Receive data from printer.
 
@@ -197,28 +213,4 @@ class PeripageBleakPrinter(AbstractPrinter):
         * `recv_size` - max size of received chunk
         """
 
-        return self.sock.recv(recv_size)
-
-    def tellPrinterSeq(self, byteseq: typing.Iterable[bytes]) -> None:
-        """
-        Send list of `bytes` to the printer without response.
-
-        Arguments:
-        * `byteseq` - `list` of `bytes`
-        """
-
-        for s in byteseq:
-            self.sock.send(s)
-
-    def askPrinterSeq(self, byteseq: typing.Iterable[bytes], recv_size: int=1024) -> bytes:
-        """
-        Send list of `bytes` to the printer with response.
-
-        Arguments:
-        * `recv_size` - max size of received chunk
-        * `byteseq` - `list` of `bytes`
-        """
-
-        for s in byteseq:
-            self.sock.send(s)
-        return self.sock.recv(recv_size)
+        return self.rx_data

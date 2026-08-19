@@ -28,7 +28,7 @@ except ModuleNotFoundError as mnfe:
 class PeripageBluezPrinter(PeripagePrinter):
 
     def __init__(self, mac: str, printer_type: PrinterType, timeout: float=1.0,):
-        super(mac, printer_type, timeout,)
+        super().__init__(mac, printer_type, timeout,)
 
     def isConnected(self) -> bool:
         """
@@ -41,7 +41,7 @@ class PeripageBluezPrinter(PeripagePrinter):
         except:
             return False
 
-    def connect(self) -> bool:
+    async def connect(self) -> bool:
         """
         Open a new connection to the printer without checking for existing
         connection. In case of malfunction and/or twice connecting to the same
@@ -58,7 +58,7 @@ class PeripageBluezPrinter(PeripagePrinter):
         self.sock.settimeout(self.timeout)
         return True
 
-    def reconnect(self) -> None:
+    async def reconnect(self) -> None:
         """
         Reconnect to the printer with existing connection check.
 
@@ -70,7 +70,7 @@ class PeripageBluezPrinter(PeripagePrinter):
 
         self.connect()
 
-    def disconnect(self) -> None:
+    async def disconnect(self) -> None:
         """
         Disconnect from the printer.
         """
@@ -91,7 +91,7 @@ class PeripageBluezPrinter(PeripagePrinter):
         if self.isConnected():
             self.sock.settimeout(timeout)
 
-    def tellPrinter(self, byteseq: bytes) -> None:
+    async def tellPrinter(self, byteseq: bytes) -> None:
         """
         Send `bytes` to the printer without response.
 
@@ -101,7 +101,7 @@ class PeripageBluezPrinter(PeripagePrinter):
 
         self.sock.send(byteseq)
 
-    def askPrinter(self, byteseq: bytes, recv_size: int=1024) -> list[bytes]:
+    async def askPrinter(self, byteseq: bytes, recv_size: int=1024) -> list[bytes]:
         """
         Send `bytes` to the printer with response.
 

@@ -15,13 +15,15 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 
-def main():
+async def main():
     import argparse
+    from peripage import PrinterType, PeripagePrinter
+    import peripage
 
     parser = argparse.ArgumentParser(description='Print on a Peripage printer via bluetooth')
     parser.add_argument(
         '-m', '--mac',
-        help='Bluetooth MAC address of the printer',
+        help="Bluetooth MAC address of the printer. If it's not a well-formed MAC address, device discovery will be run.",
         required=True,
         type=str
     )
@@ -45,7 +47,7 @@ def main():
     parser.add_argument(
         '-p', '--printer',
         help='Printer model selection',
-        choices=peripage.PrinterType.names(),
+        choices=PrinterType.names(),
         type=str,
         required=True
     )
@@ -81,8 +83,6 @@ def main():
     del parser
 
     import sys
-    import peripage
-    from peripage import PeripagePrinter, PrinterType
     try:
         import peripage.PIL
     except ModuleNotFoundError as mnfe:
@@ -90,74 +90,93 @@ def main():
         print("Your environment is missing PIL. Suggestion (mind your venv etc.): python3 -m pip install 'Pillow'", file=stderr,)
         #raise mnfe
     
-    factory: PeripagePrinter = None
-    for factory_module, factory_impl, notfound_message in [
-        ('.bleak_impl', 'PeripageBleakPrinter', "Your environment is missing bleak. Suggestion (mind your venv etc.): python3 -m pip install 'bleak'",),
-        ('.bluez_impl', 'PeripageBluezPrinter', "Your environment is missing pybluez. Suggestion (mind your venv etc.): python3 -m pip install 'PyBluez-bitalino'",),
-        ]:
-        try:
-            exec(f"from {factory_module} import {factory_impl}")
-            factory = eval(factory_impl)
-        except ModuleNotFoundError as mnfe:
-            from sys import stderr
-            print(notfound_message, file=stderr,)
+    import re
+    if re.fullmatch("..:..:..:..:..:..", args.mac,) is not None:
+        factory: PeripagePrinter = None
+        import importlib
+        for factory_module, factory_impl, notfound_message in [
+            ('.bleak_impl', 'PeripageBleakPrinter', "Your environment is missing bleak. Suggestion (mind your venv etc.): python3 -m pip install 'bleak'",),
+            ('.bluez_impl', 'PeripageBluezPrinter', "Your environment is missing pybluez. Suggestion (mind your venv etc.): python3 -m pip install 'PyBluez-bitalino'",),
+            ]:
+            try:
+                from .bleak_impl import PeripageBleakPrinter
+                factory = PeripageBleakPrinter
+                #factory = importlib.import_module(factory_impl, package=factory_module,)
+                #exec(f"""from {factory_module} import {factory_impl} as PeripageXPrinter""")
+                #factory = PeripageXPrinter
+                break
+            except ModuleNotFoundError as mnfe:
+                from sys import stderr
+                print(notfound_message, file=stderr,)
+        else:
+            print("No loadable communication layer found!", file=sys.stderr,)
+            sys.exit(2)
+            
+        printer = factory(args.mac, PrinterType[args.printer])
+        #print("factory:", factory,)
+        #printer = PeripageXPrinter(args.mac, PrinterType[args.printer])
     else:
-        print("No loadable communication layer found!", file=stderr,)
-        sys.exit(2)
-        
-    printer = factory(args.mac, PrinterType[args.printer])
-    printer.connect()
-    printer.reset()
+        from peripage.bleak_impl import PeripageBleakPrinter
+        from bleak.backends.device import BLEDevice
+        printer0: BLEDevice = await PeripageBleakPrinter.discover_devices(PeripageBleakPrinter)
+        if printer0 is None:
+            sys.exit(0)
+        # FIXME: Don't assume Peripage A6 as printer type.
+        printer = PeripageBleakPrinter(printer0.address, PrinterType.A6,)
+
+    await printer.connect()
+    await printer.reset()
 
     # Act based on args
     if getattr(args, 'introduce', False,):
 
         # print('Hello, my name is Harold..')
-        print(printer.getDeviceFull().decode('ascii'))
-        printer.disconnect()
+        device_full = await printer.getDeviceFull()
+        print(device_full.decode('ascii'))
+        await printer.disconnect()
         sys.exit(0)
 
     elif getattr(args, 'stream', False,):
 
-        printer.setConcentration(args.concentration)
+        await printer.setConcentration(args.concentration)
 
         while True:
             try:
                 line = input().rstrip()
 
-                printer.printlnASCII(line)
+                await printer.printlnASCII(line)
 
             except EOFError:
                 # Input closed ^d^d
                 break
 
         if args.break_size > 0:
-            printer.printBreak(args.break_size)
+            await printer.printBreak(args.break_size)
 
-        printer.disconnect()
+        await printer.disconnect()
 
         sys.exit(0)
 
     elif getattr(args, 'text', None,) is not None:
 
-        printer.setConcentration(args.concentration)
+        await printer.setConcentration(args.concentration)
 
         text = args.text.rstrip()
 
         if len(text) > 0:
-            printer.printASCII(text)
-            printer.flushASCII()
+            await printer.printASCII(text)
+            await printer.flushASCII()
 
         if args.break_size > 0:
-            printer.printBreak(args.break_size)
+            await printer.printBreak(args.break_size)
 
-        printer.disconnect()
+        await printer.disconnect()
 
         sys.exit(0)
 
     elif getattr(args, 'image', None,) is not None:
 
-        printer.setConcentration(args.concentration)
+        await printer.setConcentration(args.concentration)
 
         try:
             import PIL.Image
@@ -166,31 +185,33 @@ def main():
             print(f'Failed to open image { args.image }', file=sys.stderr,)
             sys.exit(1)
 
-        printer.printImage(img)
+        await printer.printImage(img)
 
         if args.break_size > 0:
-            printer.printBreak(args.break_size)
+            await printer.printBreak(args.break_size)
 
-        printer.disconnect()
+        await printer.disconnect()
 
         sys.exit(0)
 
     elif getattr(args, 'qr', None,) is not None:
 
-        printer.setConcentration(args.concentration)
+        await printer.setConcentration(args.concentration)
 
-        printer.printQR(args.qr)
+        await printer.printQR(args.qr)
 
         if args.break_size > 0:
-            printer.printBreak(args.break_size)
+            await printer.printBreak(args.break_size)
 
-        printer.disconnect()
+        await printer.disconnect()
 
         sys.exit(0)
 
     else:
 
         print('How did you get there?')
+    #asyncio.run(PeripageBleakPrinter.discover_devices(address='C0:15:83:15:1F:78'))
 
 if __name__ == '__main__':
-    main()
+    import asyncio
+    asyncio.run(main())

@@ -16,7 +16,7 @@ import typing
 from .. import PeripagePrinter
 
 @add_method(PeripagePrinter)
-def printImage(self: PeripagePrinter, img: PIL.Image.Image, delay=0.01, resample=PIL.Image.Resampling.NEAREST) -> list[str]:
+async def printImage(self: PeripagePrinter, img: PIL.Image.Image, delay=0.01, resample=PIL.Image.Resampling.NEAREST,) -> list[str]:
     """
     Print PIL Image on this printer with automatic internal to-blackwhite
     conversion.
@@ -47,11 +47,11 @@ def printImage(self: PeripagePrinter, img: PIL.Image.Image, delay=0.01, resample
     img = img.convert('1')
 
     imgbytes = img.tobytes()
-    self.printImageBytes(imgbytes, delay=delay)
+    await self.printImageBytes(imgbytes, delay=delay,)
     return warnings
 
 @add_method(PeripagePrinter)
-def printImageIterator(self: PeripagePrinter, imgiterator: typing.Iterable[PIL.Image.Image], delay: float=0.01):
+async def printImageIterator(self: PeripagePrinter, imgiterator: typing.Iterable[PIL.Image.Image], delay: float=0.01,):
     """
     Iterate over iterator and print out each PIL Image that it returns.
 
@@ -61,10 +61,10 @@ def printImageIterator(self: PeripagePrinter, imgiterator: typing.Iterable[PIL.I
     """
 
     for img in imgiterator:
-        self.printImage(img, delay=delay)
+        await self.printImage(img, delay=delay)
 
 @add_method(PeripagePrinter)
-def printQR(self: PeripagePrinter, text: str, delay: float=0.01, resample=PIL.Image.Resampling.NEAREST) -> None:
+async def printQR(self: PeripagePrinter, text: str, delay: float=0.01, resample=PIL.Image.Resampling.NEAREST,) -> None:
     """
     Generate a QR code from specified string and print it.
 
@@ -76,4 +76,4 @@ def printQR(self: PeripagePrinter, text: str, delay: float=0.01, resample=PIL.Im
     """
     # pucgenie: convenience functionality - don't break the whole driver if qrcode dependency is unavailable
     import qrcode
-    self.printImage(qrcode.make(text, border=0), delay=delay, resample=resample)
+    await self.printImage(qrcode.make(text, border=0), delay=delay, resample=resample)
