@@ -426,8 +426,10 @@ class PeripagePrinter:
         * `serial_number` - serial number string that passes the
         `Printer.is_safe_ascii()` check.
         """
+        if not PeripagePrinter.is_safe_ascii(serial_number):
+            raise ValueError("serial_number needs to be a 7-bit ASCII-compatible string")
 
-        request = PeripageFirmware.COMMAND_PREFIX + b"\x20\xf4" + PeripagePrinter.filter_ascii(serial_number).encode('ascii') + b'\0'
+        request = PeripageFirmware.COMMAND_PREFIX + b"\x20\xf4" + serial_number.encode('ascii') + b'\0'
 
         if wait:
             return self.askPrinter(request)
@@ -557,10 +559,10 @@ class PeripagePrinter:
 
         self.printASCII(text=text + '\n', delay=delay)
 
-    def printASCII(self, text: str='\n', delay: float=0.25) -> None:
+    def printASCII(self, text: str='\n', delay: float=0.25, autofilter_ascii=False,) -> None:
         """
         Safe to use printing method that relies on in-class buffer for wrapping
-        text. The input is filtered with `Printer.filter_ascii` in order to
+        text. The input can be filtered with `Printer.filter_ascii` in order to
         exclude all non-safe-ascii characters and later splitted into multiple
         chunks over `\\n` in order to prevent freeze caused by twice-newline in
         printer buffer. This function is equal to  normal `print` in C. This
@@ -573,12 +575,15 @@ class PeripagePrinter:
         Request: `impl:Printer.writeASCII()`.
 
         Arguments:
-        * `text` - text to be printed, automatically filtered with
-        `Printer.filter_ascii()` and splitted into newline-chunked data.
+        * `autofilter_ascii` - Whether to apply
+        `PeripagePrinter.filter_ascii()` on `text`
+        * `text` - text to be printed, splitted into newline-chunked data.
         * `delay` - delay between lines submission, seconds
         """
-
-        text = PeripagePrinter.filter_ascii(text)
+        if autofilter_ascii:
+            text = PeripagePrinter.filter_ascii(text)
+        elif not PeripagePrinter.is_safe_ascii(text):
+            raise ValueError("serial_number needs to be a 7-bit ASCII-compatible string")
 
         # Check for empty and print out newline
         text = self.print_buffer + text
