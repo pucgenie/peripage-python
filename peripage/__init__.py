@@ -16,8 +16,11 @@
 
 
 __title__ = 'Peripage buetooth printing utility'
-__version__ = '1.2'
-__author__ = 'bitrate16'
+__version__ = '2.0'
+__author__ = [
+    'bitrate16',
+    'pucgenie',
+    ]
 __license__ = 'GPLv3'
 __copyright__ = 'Copyright (c) GPLv3 2021-2023 bitrate16 (pegasko)'
 
