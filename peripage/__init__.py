@@ -103,7 +103,7 @@ class PeripageFirmware:
     x70 == p
     """
     COMMAND_PREFIX: typing.Final[bytes]           = b"\x10\xff"
-
+    # <prefixed commands>
     QUERY_FIRMWARE_VERSION: typing.Final[bytes]   = b"\x20\xf1"
     QUERY_DEVICE_NAME: typing.Final[bytes]        = b"\x30\x11"
     QUERY_SERIAL_NUMBER: typing.Final[bytes]      = b"\x20\xf2"
@@ -112,11 +112,14 @@ class PeripageFirmware:
     QUERY_MAC_ADDRESS: typing.Final[bytes]        = b"\x30\x12"
     QUERY_ALL: typing.Final[bytes]                = b"\x70\xf1\0"
     
-    RESET: typing.Final[bytes]                    = bytes.fromhex('fe01000000000000000000000000')
-    PRINT_PIXEL_ROW: typing.Final[bytes]          = bytes.fromhex('1d763000')
     SET_SERIAL_NUMBER: typing.Final[bytes]        = b"\x20\xf4"
     SET_CONCENTRATION: typing.Final[bytes]        = b"\x10\0"
     SET_POWER_TIMEOUT: typing.Final[bytes]        = b'\x12'
+    #</prefixed commands>
+
+    # stand-alone commands
+    RESET: typing.Final[bytes]                    = bytes.fromhex('fe01000000000000000000000000')
+    PRINT_PIXEL_ROW: typing.Final[bytes]          = bytes.fromhex('1d763000')
 
 class PeripagePrinter:
     """
@@ -130,7 +133,23 @@ class PeripagePrinter:
     Currently there is no stop codes found, so you can not stop printing.
 
     It is required to perform reset() after connection to the printer.
+
+    Overheating management ideas:
+    1. Use higher per-line delay in conjunction with higher concentration.
+    2. Use a sliding window tracking multiple areas of the printing head
+       (per-pixel or per group of a few pixels) and 
+       a. calculating when to pause for 1-2 minutes
+       b. or when to up the delay_per_line.
+    3. Ask user to blow cold air onto the printer.
+    4. Assume the user wants to break their hardware.
+
+    Implementing overheating management method 2b would require knowledge
+    about heat energy, dissipation, battery charge state-dependent
+    behaviour changes of the hardware/firmware, ambient temperature around
+    the printer, size of the remaining paper roll and type inside the
+    printer, ...
     """
+    DEFAULT_DELAY_PER_LINE = 0.007
 
     @staticmethod
     def filter_ascii(text: str) -> str:
@@ -670,7 +689,7 @@ class PeripagePrinter:
             await self.tellPrinter(b'\n')
             self.print_buffer = ''
 
-    async def printRow(self, rowbytes: bytes, delay: float=0.008,) -> None:
+    async def printRow(self, rowbytes: bytes, delay: float=DEFAULT_DELAY_PER_LINE,) -> None:
         """
         Send bytes representing a single image row in binary black/white mode.
         If amount of bydes exceedes the `Printer.getRowBytes()` constant, input
@@ -705,7 +724,11 @@ class PeripagePrinter:
 
         # We're done here
 
-    async def printRowBytesList(self, rowbytes: typing.Iterable[bytes], delay: float=0.008,) -> None:
+    def calculate_per_line_delay(self, delay: float,) -> float:
+        """Non-staticmethod because may depend on printer type etc."""
+        return delay * (1 + self.concentration)
+
+    async def printRowBytesList(self, rowbytes: typing.Iterable[bytes], delay: float=DEFAULT_DELAY_PER_LINE,) -> None:
         """
         Send an array of bytes representing a multiple image rows in binary
         black/white mode. If amount of bydes per row exceedes the
@@ -736,6 +759,7 @@ class PeripagePrinter:
         expectedLen = self.getRowBytes()
         chunks = [ rowbytes[i:i+0xff] for i in range(0, len(rowbytes), 0xff) ]
 
+        delay_per_row: typing.Final[float] = self.calculate_per_line_delay(delay)
         for chunk in chunks:
 
             # Reset state before print
@@ -759,9 +783,9 @@ class PeripagePrinter:
                 await self.tellPrinter(row)
 
                 # pucgenie: alternatively introduce delay_bulk ?
-                await asyncio.sleep(delay * max(1, self.concentration))
+                await asyncio.sleep(delay_per_row)
 
-    async def printRowBytesIterator(self, rowiterator: typing.Iterable[bytes], delay: float=0.008,) -> None:
+    async def printRowBytesIterator(self, rowiterator: typing.Iterable[bytes], delay: float=DEFAULT_DELAY_PER_LINE,) -> None:
         """
         Iterate over the given iterator and print out all produced rows. This
         method is very slow as it required printer to oftenly switch on/off
@@ -777,7 +801,7 @@ class PeripagePrinter:
         for r in rowiterator:
             await self.printRow(r, delay=delay)
 
-    async def printRowChunksIterator(self, rowiterator: typing.Iterable[list[bytes]], delay: float=0.008,) -> None:
+    async def printRowChunksIterator(self, rowiterator: typing.Iterable[list[bytes]], delay: float=DEFAULT_DELAY_PER_LINE,) -> None:
         """
         Iterate over the given iterator and print out all produced chunks of
         rows. One chunk of rows is a list of bytes where each bytes define the
@@ -793,7 +817,7 @@ class PeripagePrinter:
         for chunk in rowiterator:
             await self.printRowBytesList(chunk, delay=delay)
 
-    async def printImageBytes(self, imagebytes: bytes, delay: float=0.008,) -> None:
+    async def printImageBytes(self, imagebytes: bytes, delay: float=DEFAULT_DELAY_PER_LINE,) -> None:
         """
         Send an bytes representing single-line encoded image. For example,
         `[0xff000000, 0x00ff0000, 0x0000ff00, 0x000000ff]` is encoded as
