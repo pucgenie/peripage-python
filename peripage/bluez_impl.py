@@ -47,8 +47,9 @@ class PeripageBluezPrinter(PeripagePrinter):
         connection. In case of malfunction and/or twice connecting to the same
         printer, socket descriptor becomes unoperateable.
 
-        In order to make printer operate normally, it is required to call
-        `reset()` after connecting.
+        Automatically sends a reset command. (Firmware internals: In order to
+        make printer operate normally, it is required to call `reset()` after
+        connecting.)
         """
         if self.isConnected():
             return False
@@ -56,19 +57,11 @@ class PeripageBluezPrinter(PeripagePrinter):
         self.sock = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
         self.sock.connect((self.mac, 1))
         self.sock.settimeout(self.timeout)
+        self.reset()
+        if self.printer_type is None:
+            self.serial_number = await self.getDeviceSerialNumber()
+            self.guess_printer_type()
         return True
-
-    async def reconnect(self) -> None:
-        """
-        Reconnect to the printer with existing connection check.
-
-        In order to make printer operate normally, it is required to call
-        `reset()` after connecting.
-        """
-
-        self.disconnect()
-
-        self.connect()
 
     async def disconnect(self) -> None:
         """

@@ -74,11 +74,11 @@ from peripage import PrinterType
 from bleak.backends.device import BLEDevice
 from abc import abstractmethod
 
-UART_SERVICE_UUID = '49535343-fe7d-4ae5-8fa9-9fafd205e455'
+UART_SERVICE_UUID           = '49535343-fe7d-4ae5-8fa9-9fafd205e455'
 # template said: "00002a37-0000-1000-8000-00805f9b34fb"
-TX_CHARACTERISTIC_UUID = '49535343-8841-43f4-a8d4-ecbe34729bb3'
-RX_CHARACTERISTIC_UUID = '49535343-1e4d-4bd9-ba61-23c647249616'
-TX_SYNC_CHARACTERISTIC_UUID = '49535343-1e4d-4bd9-ba61-23c647249616'
+TX_CHARACTERISTIC_UUID      = '49535343-8841-43f4-a8d4-ecbe34729bb3'
+RX_CHARACTERISTIC_UUID      = '49535343-1e4d-4bd9-ba61-23c647249616'
+TX_SYNC_CHARACTERISTIC_UUID = '49535343-6daa-4d02-abf6-19569aca69fe'
 
 from peripage import PeripagePrinter
 class PeripageBleakPrinter(PeripagePrinter):
@@ -86,7 +86,9 @@ class PeripageBleakPrinter(PeripagePrinter):
     def __init__(self, mac: str, printer_type: PrinterType, timeout: float=1.0,):
         super().__init__(mac, printer_type, timeout,)
         self.client: BleakClient = None
-        self.rx_data = []
+        # preallocate to ensure real-time behaviour of rx_notification_handler #prematureoptimization
+        self.rx_data = [None]
+        self.rx_data.clear()
 
     def rx_notification_handler(self, sender: int, data: bytearray,):
         self.rx_data.append(data)
@@ -146,22 +148,28 @@ class PeripageBleakPrinter(PeripagePrinter):
     async def _notifier_unsubscribe(self):
         await self.client.stop_notify(RX_CHARACTERISTIC_UUID)
 
-    async def connect(self) -> None:
+    async def connect(self) -> bool:
         """
         Open a new connection to the printer without checking for existing
         connection. In case of malfunction and/or twice connecting to the same
         printer, socket descriptor becomes unoperateable.
 
-        In order to make printer operate normally, it is required to call
-        `reset()` after connecting.
+        Automatically sends a reset command. (Firmware internals: In order to
+        make printer operate normally, it is required to call `reset()` after
+        connecting.)
         """
         if self.client is not None:
             print("Client already connected", file=stderr,)
-            return
+            return False
         # pucgenie: Can't use services=[UART_SERVICE_UUID,], because the UUID is not fixed.
         self.client = BleakClient(self.mac,)
         await self.client.connect()
         await self._notifier_subscribe()
+        await self.reset()
+        if self.printer_type is None:
+            self.serial_number = await self.getDeviceSerialNumber()
+            self.guess_printer_type()
+        return True
 
     async def disconnect(self) -> None:
         """
@@ -172,18 +180,6 @@ class PeripageBleakPrinter(PeripagePrinter):
             await self._notifier_unsubscribe()
             await self.client.disconnect()
             self.client = None
-
-    async def reconnect(self) -> None:
-        """
-        Reconnect to the printer with existing connection check.
-
-        In order to make printer operate normally, it is required to call
-        `reset()` after connecting.
-        """
-
-        await self.disconnect()
-
-        await self.connect()
 
     def setTimeout(self, timeout,) -> None:
         """
@@ -220,7 +216,10 @@ class PeripageBleakPrinter(PeripagePrinter):
 
         #await self._notifier_subscribe()
         ret = self.rx_data
-        self.rx_data = []
+
+        self.rx_data = [None]
+        self.rx_data.clear()
+
         return ret
 
     def listenPrinter(self) -> list[bytes]:

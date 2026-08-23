@@ -43,10 +43,11 @@ class PrinterTypeSpecs:
     * `row_characters` - width of row in ASCII-mode characters
     """
 
-    def __init__(self, row_bytes: int, row_width: int, row_characters: int):
+    def __init__(self, row_bytes: int, row_width: int, row_characters: int, dpi: int=0):
         self.row_bytes = row_bytes
         self.row_width = row_width
         self.row_characters = row_characters
+        self.dpi = dpi
 
 class PrinterType(enum.Enum):
     """
@@ -57,25 +58,31 @@ class PrinterType(enum.Enum):
     A6 = PrinterTypeSpecs(
         row_bytes=48,
         row_width=384,
-        row_characters=32
+        row_characters=32,
+        dpi=203,
     )
 
     A6p = PrinterTypeSpecs(
         row_bytes=72,
         row_width=576,
-        row_characters=48
+        row_characters=48,
+        dpi=304,
     )
 
     A40 = PrinterTypeSpecs(
         row_bytes=216,
         row_width=1728,
-        row_characters=144
+        row_characters=144,
+        # https://www.peripageglobal.com/de/products/peripage-a40-mini-printer?variant=42535807647893
+        dpi=203,
     )
 
     A40p = PrinterTypeSpecs(
         row_bytes=231,
         row_width=1848,
-        row_characters=154
+        row_characters=154,
+        # unsure
+        dpi=304,
     )
 
     @classmethod
@@ -206,6 +213,17 @@ class PeripagePrinter:
     ) -> None:
         await self.disconnect()
 
+    def guess_printer_type(self) -> None:
+        if not hasattr(self, "serial_number"):
+            raise UserWarning("Invalid method invocation, wrong state. Expected to be called after #getDeviceSerialNumber().")
+        sn3 = self.serial_number[:3]
+        match sn3:
+            case b"A62":
+                self.printer_type = PrinterType.A6
+            case _:
+                raise UserWarning(f"Couldn't determine model, serial number[:3] = {sn3}")
+
+
     @abstractmethod
     def isConnected(self) -> bool:
         """
@@ -214,26 +232,25 @@ class PeripagePrinter:
         raise NotImplementedError()
 
     @abstractmethod
-    async def connect(self) -> None:
+    async def connect(self) -> bool:
         """
         Open a new connection to the printer without checking for existing
         connection. In case of malfunction and/or twice connecting to the same
         printer, socket descriptor becomes unoperateable.
 
-        In order to make printer operate normally, it is required to call
-        `reset()` after connecting.
+        Returns True ONLY if a new connection was established. (Use
+        #isConnected() if you ever get False returned - bug on your side?)
         """
         raise NotImplementedError()
 
-    @abstractmethod
     async def reconnect(self) -> None:
         """
         Reconnect to the printer with existing connection check.
-
-        In order to make printer operate normally, it is required to call
-        `reset()` after connecting.
         """
-        raise NotImplementedError()
+
+        await self.disconnect()
+
+        await self.connect()
 
     @abstractmethod
     async def disconnect(self) -> None:

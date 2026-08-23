@@ -29,10 +29,9 @@ async def main():
     # pucgenie: I hope we could dynamically determine that somehow
     parser.add_argument(
         '-p', '--printer',
-        help='Printer model selection',
+        help="""Printer model selection. If not provided, this programm will query the printer's serial number and decode the model from there (takes some time).""",
         choices=PrinterType.names(),
         type=str,
-        required=True
     )
     parser.add_argument(
         '-c', '--concentration',
@@ -93,6 +92,8 @@ async def main():
         print("Your environment is missing PIL. Suggestion (mind your venv etc.): python3 -m pip install 'Pillow'", file=stderr,)
         #raise mnfe
     
+    printer_type = getattr(PrinterType, args.printer, None,) if args.printer else None
+
     import re
     if re.fullmatch("..:..:..:..:..:..", args.mac,) is not None:
         factory: list[PeripagePrinter] = [None,]
@@ -116,7 +117,7 @@ factory[0] = {factory_impl}""", globals=globals(), locals=locals(),)
             print("No loadable communication layer found!", file=sys.stderr,)
             sys.exit(2)
             
-        printer = factory[0](args.mac, PrinterType[args.printer])
+        printer = factory[0](args.mac, printer_type,)
         #print("factory:", factory,)
         #printer = PeripageXPrinter(args.mac, PrinterType[args.printer])
     else:
@@ -125,10 +126,9 @@ factory[0] = {factory_impl}""", globals=globals(), locals=locals(),)
         printer0: BLEDevice = await PeripageBleakPrinter.discover_devices(PeripageBleakPrinter)
         if printer0 is None:
             sys.exit(0)
-        printer = PeripageBleakPrinter(printer0.address, PrinterType[args.printer],)
+        printer = PeripageBleakPrinter(printer0.address, printer_type,)
 
     await printer.connect()
-    await printer.reset()
 
     # Act based on args
     match args.mode:
