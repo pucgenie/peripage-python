@@ -196,7 +196,7 @@ class PeripagePrinter:
         self.mac = mac
         self.timeout = timeout
         self.printer_type = printer_type
-        self.concentration = 1 # FIXME: Is it the default?
+        self.concentration = 0 # FIXME: Is it the default for all printer types? pucgenie: c=0 as default for A6 confirmed.
 
         # buffer used for continuous printing with line wrapping
         self.print_buffer = ''
