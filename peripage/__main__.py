@@ -22,14 +22,21 @@ async def main():
 
     parser = argparse.ArgumentParser(description='Print on a Peripage printer via bluetooth')
     parser.add_argument(
-        '-m', '--mac',
+        'mac',
         help="Bluetooth MAC address of the printer. If it's not a well-formed MAC address, device discovery will be run.",
-        required=True,
         type=str
+    )
+    # pucgenie: I hope we could dynamically determine that somehow
+    parser.add_argument(
+        '-p', '--printer',
+        help='Printer model selection',
+        choices=PrinterType.names(),
+        type=str,
+        required=True
     )
     parser.add_argument(
         '-c', '--concentration',
-        help='Concentration value for printing (temperature)',
+        help='Concentration value for printing (temperature), affects contrast',
         choices=[0, 1, 2],
         metavar='[0-2]',
         type=int,
@@ -44,40 +51,37 @@ async def main():
         type=int,
         default=0
     )
-    parser.add_argument(
-        '-p', '--printer',
-        help='Printer model selection',
-        choices=PrinterType.names(),
-        type=str,
-        required=True
-    )
 
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument(
-        '-t', '--text',
+    subparsers = parser.add_subparsers(dest="mode", required=True, help="Operation",)
+    parser_text = subparsers.add_parser("text", help="Print text")
+    parser_text.add_argument(
+        'text',
         help='ASCII text to print. Text must be ASCII-safe and will be filtered for invalid characters',
         type=str
     )
-    group.add_argument(
-        '-s', '--stream',
-        help='Print text received from STDIN, line by line. Text must be ASCII-safe and will be filtered for invalid characters',
-        action='store_true'
-    )
-    group.add_argument(
-        '-i', '--image',
+
+    parser_stream = subparsers.add_parser("stream", help="Print text received from STDIN, line by line. Text must be ASCII-safe and will be filtered for invalid characters")
+
+    parser_img = subparsers.add_parser("image", help="Image printing")
+    parser_img.add_argument(
+        'image',
         help='Path to the image for printing',
         type=str
     )
-    group.add_argument(
-        '-q', '--qr',
+    parser_img.add_argument(
+        '--mirror',
+        help='Mirror image for printing',
+        action='store_true'
+    )
+
+    parser_qr = subparsers.add_parser("qr", help="Print text")
+    parser_qr.add_argument(
+        'qr',
         help='String to convert into a QR code for printing',
         type=str
     )
-    group.add_argument(
-        '-e', '--introduce',
-        help='Ask the printer to introduce itself',
-        action='store_true'
-    )
+
+    parser_introduce = subparsers.add_parser("introduce", help="Ask the printer to introduce itself")
 
     args = parser.parse_args()
     del parser
@@ -127,89 +131,84 @@ factory[0] = {factory_impl}""", globals=globals(), locals=locals(),)
     await printer.reset()
 
     # Act based on args
-    if getattr(args, 'introduce', False,):
+    match args.mode:
+        case 'introduce':
+            # print('Hello, my name is Harold..')
+            device_full = await printer.getDeviceFull()
+            print(device_full.decode('ascii'))
+            await printer.disconnect()
+            sys.exit(0)
 
-        # print('Hello, my name is Harold..')
-        device_full = await printer.getDeviceFull()
-        print(device_full.decode('ascii'))
-        await printer.disconnect()
-        sys.exit(0)
+        case 'stream':
+            await printer.setConcentration(args.concentration)
 
-    elif getattr(args, 'stream', False,):
+            while True:
+                try:
+                    line = input().rstrip()
 
-        await printer.setConcentration(args.concentration)
+                    await printer.printlnASCII(line)
 
-        while True:
+                except EOFError:
+                    # Input closed ^d^d
+                    break
+
+            if args.break_size > 0:
+                await printer.printBreak(args.break_size)
+
+            await printer.disconnect()
+
+            sys.exit(0)
+
+        case 'text':
+            await printer.setConcentration(args.concentration)
+
+            text = args.text.rstrip()
+
+            if len(text) > 0:
+                await printer.printASCII(text)
+                await printer.flushASCII()
+
+            if args.break_size > 0:
+                await printer.printBreak(args.break_size)
+
+            await printer.disconnect()
+
+            sys.exit(0)
+
+        case 'image':
+            await printer.setConcentration(args.concentration)
+
             try:
-                line = input().rstrip()
+                import PIL.Image
+                img = PIL.Image.open(args.image)
+            except:
+                print(f'Failed to open image { args.image }', file=sys.stderr,)
+                sys.exit(1)
 
-                await printer.printlnASCII(line)
+            await printer.printImage(img, mirror=args.mirror,)
 
-            except EOFError:
-                # Input closed ^d^d
-                break
+            if args.break_size > 0:
+                await printer.printBreak(args.break_size)
 
-        if args.break_size > 0:
-            await printer.printBreak(args.break_size)
+            await printer.disconnect()
 
-        await printer.disconnect()
+            sys.exit(0)
 
-        sys.exit(0)
+        case 'qr':
 
-    elif getattr(args, 'text', None,) is not None:
+            await printer.setConcentration(args.concentration)
 
-        await printer.setConcentration(args.concentration)
+            await printer.printQR(args.qr)
 
-        text = args.text.rstrip()
+            if args.break_size > 0:
+                await printer.printBreak(args.break_size)
 
-        if len(text) > 0:
-            await printer.printASCII(text)
-            await printer.flushASCII()
+            await printer.disconnect()
 
-        if args.break_size > 0:
-            await printer.printBreak(args.break_size)
+            sys.exit(0)
 
-        await printer.disconnect()
-
-        sys.exit(0)
-
-    elif getattr(args, 'image', None,) is not None:
-
-        await printer.setConcentration(args.concentration)
-
-        try:
-            import PIL.Image
-            img = PIL.Image.open(args.image)
-        except:
-            print(f'Failed to open image { args.image }', file=sys.stderr,)
-            sys.exit(1)
-
-        await printer.printImage(img)
-
-        if args.break_size > 0:
-            await printer.printBreak(args.break_size)
-
-        await printer.disconnect()
-
-        sys.exit(0)
-
-    elif getattr(args, 'qr', None,) is not None:
-
-        await printer.setConcentration(args.concentration)
-
-        await printer.printQR(args.qr)
-
-        if args.break_size > 0:
-            await printer.printBreak(args.break_size)
-
-        await printer.disconnect()
-
-        sys.exit(0)
-
-    else:
-
-        print('How did you get there?')
-    #asyncio.run(PeripageBleakPrinter.discover_devices(address='C0:15:83:15:1F:78'))
+        case _:
+            print('How did you get there?')
 
 if __name__ == '__main__':
     import asyncio

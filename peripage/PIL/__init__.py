@@ -32,7 +32,7 @@ import typing
 from .. import PeripagePrinter
 
 @add_method(PeripagePrinter)
-async def printImage(self: PeripagePrinter, img: PIL.Image.Image, delay: float=0.008, resample: PIL.Image.Resampling=PIL.Image.Resampling.NEAREST,) -> list[str]:
+async def printImage(self: PeripagePrinter, img: PIL.Image.Image, delay: float=0.008, resample: PIL.Image.Resampling=PIL.Image.Resampling.NEAREST, mirror: bool=False,) -> list[str]:
     """
     Print PIL Image on this printer with automatic internal to-blackwhite
     conversion.
@@ -63,6 +63,8 @@ async def printImage(self: PeripagePrinter, img: PIL.Image.Image, delay: float=0
     if img.mode != "1":
         # pucgenie: TODO: Double vertical grayscale resolution by also generating a row-by-row list of concentration (=saturation, contrast, heat) values. Rows containing edge-pixels only get lower concentration, all others get full concentration.
         img = img.convert('1')
+    if mirror:
+        img = PIL.ImageOps.mirror(img)
 
     imgbytes = img.tobytes()
     await self.printImageBytes(imgbytes, delay=delay,)
