@@ -17,13 +17,13 @@ import sys
 
 async def main():
     import argparse
-    from peripage import PrinterType, PeripagePrinter
+    from peripage import PrinterType
     import peripage
 
     parser = argparse.ArgumentParser(description='Print on a Peripage printer via bluetooth')
     parser.add_argument(
         'mac',
-        help="Bluetooth MAC address of the printer. If it's not a well-formed MAC address, device discovery will be run.",
+        help="Bluetooth MAC address of the printer. If it's not a well-formed MAC address, device discovery will be run (requires bleak package).",
         type=str
     )
     # pucgenie: I hope we could dynamically determine that somehow
@@ -96,19 +96,14 @@ async def main():
 
     import re
     if re.fullmatch("..:..:..:..:..:..", args.mac,) is not None:
-        factory: list[PeripagePrinter] = [None,]
         import importlib
         for factory_module, factory_impl, notfound_message in [
             ('.bleak_impl', 'PeripageBleakPrinter', "Your environment is missing bleak. Suggestion (mind your venv etc.): python3 -m pip install 'bleak'",),
             ('.bluez_impl', 'PeripageBluezPrinter', "Your environment is missing pybluez. Suggestion (mind your venv etc.): python3 -m pip install 'PyBluez-bitalino'",),
             ]:
             try:
-                exec(f"""from {factory_module} import {factory_impl}
-factory[0] = {factory_impl}""", globals=globals(), locals=locals(),)
-                #from .bleak_impl import PeripageBleakPrinter
-                #exec(f"""""", globals=globals(), locals=locals(),)
-                #factory = importlib.import_module(factory_impl, package=factory_module,)
-                assert factory[0] is not None
+                module = importlib.import_module(factory_module, package=__package__ or __name__.rpartition('.')[0],)
+                printer = getattr(module, factory_impl)(args.mac, printer_type,)
                 break
             except ModuleNotFoundError as mnfe:
                 from sys import stderr
@@ -116,10 +111,6 @@ factory[0] = {factory_impl}""", globals=globals(), locals=locals(),)
         else:
             print("No loadable communication layer found!", file=sys.stderr,)
             sys.exit(2)
-            
-        printer = factory[0](args.mac, printer_type,)
-        #print("factory:", factory,)
-        #printer = PeripageXPrinter(args.mac, PrinterType[args.printer])
     else:
         from peripage.bleak_impl import PeripageBleakPrinter
         from bleak.backends.device import BLEDevice
