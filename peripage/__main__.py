@@ -95,11 +95,14 @@ async def main():
     printer_type = getattr(PrinterType, args.printer, None,) if args.printer else None
 
     import re
-    if re.fullmatch("..:..:..:..:..:..", args.mac,) is not None:
+    # "..:..:..:..:..:.."
+    # pucgenie: I hate n-1 separators. Look just how much shorter and simpler the regex becomes for n separators instead:
+    if re.fullmatch("^(?:[0-9A-Fa-f]{2}:){6}$", f"{args.mac}:",) is not None:
         import importlib
         for factory_module, factory_impl, notfound_message in [
             ('.bleak_impl', 'PeripageBleakPrinter', "Your environment is missing bleak. Suggestion (mind your venv etc.): python3 -m pip install 'bleak'",),
             ('.bluez_impl', 'PeripageBluezPrinter', "Your environment is missing pybluez. Suggestion (mind your venv etc.): python3 -m pip install 'PyBluez-bitalino'",),
+            # TODO: maybe implement USB comms - but Windows would require installing libusb if we don't find a way to use the installed-by-default "driver"
             ]:
             try:
                 module = importlib.import_module(factory_module, package=__package__ or __name__.rpartition('.')[0],)
