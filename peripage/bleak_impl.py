@@ -69,6 +69,7 @@ except ModuleNotFoundError as mnfe:
     raise mnfe
 import re
 import typing
+import datetime
 
 from peripage import PrinterType
 from bleak.backends.device import BLEDevice
@@ -86,13 +87,13 @@ class PeripageBleakPrinter(PeripagePrinter):
     def __init__(self, mac: str, printer_type: PrinterType, timeout: float=1.0,):
         super().__init__(mac, printer_type, timeout,)
         self.client: BleakClient = None
-        # preallocate to ensure real-time behaviour of rx_notification_handler #prematureoptimization
-        self.rx_data = [None]
-        self.rx_data.clear()
+        self.rx_data = []
 
     def rx_notification_handler(self, sender: int, data: bytearray,):
         self.rx_data.append(data)
         print(f"Received from {sender}: {data}")
+        if data == b'\xff\x03':
+            self.overheated = datetime.datetime.now() + datetime.timedelta(0, 60,)
 
     @abstractmethod
     async def discover_devices(cls, address=None,) -> BLEDevice:
@@ -217,8 +218,7 @@ class PeripageBleakPrinter(PeripagePrinter):
         #await self._notifier_subscribe()
         ret = self.rx_data
 
-        self.rx_data = [None]
-        self.rx_data.clear()
+        self.rx_data = []
 
         return ret
 

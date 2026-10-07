@@ -31,6 +31,8 @@ import time
 from types import TracebackType
 import typing
 import enum
+import datetime
+from sys import stderr
 
 class PrinterTypeSpecs:
     """
@@ -71,7 +73,7 @@ class PrinterType(enum.Enum):
 
     A40 = PrinterTypeSpecs(
         row_bytes=216,
-        row_width=1728,
+        row_width=1728, # 1664
         row_characters=144,
         # https://www.peripageglobal.com/de/products/peripage-a40-mini-printer?variant=42535807647893
         dpi=203,
@@ -125,7 +127,9 @@ class PeripageFirmware:
     #</prefixed commands>
 
     # stand-alone commands
-    RESET: typing.Final[bytes]                    = bytes.fromhex('fe01000000000000000000000000')
+    RESET: typing.Final[bytes]                    = bytes.fromhex('fe01')
+    UNKNOWN_M: typing.Final[bytes]                = bytes.fromhex('000000000000000000000000')
+    # legacy command according to RainManVays@github
     PRINT_PIXEL_ROW: typing.Final[bytes]          = bytes.fromhex('1d763000')
 
 class PeripagePrinter:
@@ -156,7 +160,7 @@ class PeripagePrinter:
     the printer, size of the remaining paper roll and type inside the
     printer, ...
     """
-    DEFAULT_DELAY_PER_LINE = 0.007
+    DEFAULT_DELAY_PER_LINE = 0.001
 
     @staticmethod
     def filter_ascii(text: str) -> str:
@@ -200,6 +204,13 @@ class PeripagePrinter:
 
         # buffer used for continuous printing with line wrapping
         self.print_buffer = ''
+        self.overheated = datetime.datetime.now()
+
+    async def cooldown_if_necessary(self):
+        cooldown = self.overheated - datetime.datetime.now()
+        if cooldown.seconds > 0:
+            print(f"Cooldown for {cooldown}...", file=stderr,)
+            await asyncio.sleep(cooldown.seconds)
 
     async def __aenter__(self) -> typing.Self:
         await self.connect()
@@ -453,7 +464,7 @@ class PeripagePrinter:
         image printing procedire, that requires used to vertically split the
         image into multiple chunks.
         """
-
+        # pucgenie: Are you sure it isn't 0x7fff ? Many data fields are accidentally signed instead of unsigned...
         return 0xffff
 
     async def setDeviceSerialNumber(self, serial_number: str, wait: bool=True) -> None:
@@ -499,6 +510,7 @@ class PeripagePrinter:
         """
 
         timeout = max(min(0xfff0, timeout), 0x0001)
+        # pucgenie: Why big endian here, little endian elsewhere??
         request = PeripageFirmware.COMMAND_PREFIX + PeripageFirmware.SET_POWER_TIMEOUT + int.to_bytes(timeout, 2, 'big')
 
         if wait:
@@ -520,11 +532,11 @@ class PeripagePrinter:
         * `concentration` - concentration value from range `(0, 1, 2)`
         """
 
-        if 0 <= concentration <= 2:
-            request = PeripageFirmware.COMMAND_PREFIX + PeripageFirmware.SET_CONCENTRATION + concentration.to_bytes()
+        if 0 <= concentration <= 4:
+            request = PeripageFirmware.COMMAND_PREFIX + PeripageFirmware.SET_CONCENTRATION + int.to_bytes(concentration, 1, 'big',)
             self.concentration = concentration
         else:
-            raise IndexError("concentration value from range `(0, 1, 2)`")
+            raise IndexError("concentration value from range `(0, 1, 2)` (up to 4, but no different effect to 2 observed)")
 
         if wait:
             return await self.askPrinter(request)
@@ -540,7 +552,7 @@ class PeripagePrinter:
         Request: `10fffe01+000000000000000000000000`.
         """
 
-        await self.tellPrinter(PeripageFirmware.COMMAND_PREFIX + PeripageFirmware.RESET)
+        await self.tellPrinter(PeripageFirmware.COMMAND_PREFIX + PeripageFirmware.RESET + PeripageFirmware.UNKNOWN_M)
 
     async def printBreak(self, size: int=0x40) -> None:
         """
@@ -649,7 +661,7 @@ class PeripagePrinter:
         # Iterlines
         lines = text.split('\n')
         for l in lines:
-
+            await self.cooldown_if_necessary()
             # Flush previuos incomplete line
             if len(self.print_buffer) != 0:
                 await self.tellPrinter(self.print_buffer.encode('ascii'))
@@ -713,11 +725,11 @@ class PeripagePrinter:
         is truncated. If size of input is under the `Printer.getRowBytes()`, it
         will be padded with zeros.
 
-        Request: `1d763000+bytes[2]:big_endian+0100+bytes[Printer.getRowBytes()*1]`.
+        Request: `1d763000+bytes[2]:little_endian+bytes[2]:little_endian+bytes[Printer.getRowBytes()*height]`.
 
         Note: In case of A6+, preamble is `1d76300048000100` that can be viewed
         as `[ 1d7630, 0030, 0001 ]`, where `1d7630` is printing operation
-        request, `0030` is big endian bytes per row, `0001` is big endian input
+        request, `0030` is little endian bytes per row, `0001` is little endian input
         height.
 
         Arguments:
@@ -732,10 +744,11 @@ class PeripagePrinter:
         elif len(rowbytes) > expectedLen:
             rowbytes = rowbytes[:expectedLen]
 
+        await self.cooldown_if_necessary()
         self.reset()
 
         # Notify printer about incomming $expectedLen bytes row
-        request = PeripageFirmware.PRINT_PIXEL_ROW + int.to_bytes(self.getRowBytes(), 1, 'big') + bytes.fromhex('000100') + rowbytes
+        request = PeripageFirmware.PRINT_PIXEL_ROW + int.to_bytes(self.getRowBytes(), 2, 'little') + bytes.fromhex('0100') + rowbytes
         await self.tellPrinter(request)
         await asyncio.sleep(delay)
 
@@ -758,10 +771,10 @@ class PeripagePrinter:
 
         Note: In case of A6+, preamble is `1d76300048000100` that can be viewed
         as `[ 1d7630, 0030, 0001 ]`, where `1d7630` is printing operation
-        request, `0030` is big endian bytes per row, `0001` is big endian input
+        request, `0030` is little endian bytes per row, `0001` is little endian input
         height.
 
-        Request: chunked `1d763000+bytes[1]:big_endian+00+bytes[1]:big_endian+00+bytes[Printer.getRowBytes()*chunk_height]`.
+        Request: `1d763000+bytes[2]:little_endian+bytes[2]:little_endian+bytes[Printer.getRowBytes()*height]`.
 
         Arguments:
         * `rowbytes` - list of bytes defining each row of the image. If row
@@ -774,17 +787,17 @@ class PeripagePrinter:
             return
 
         expectedLen = self.getRowBytes()
-        chunks = [ rowbytes[i:i+0xff] for i in range(0, len(rowbytes), 0xff) ]
+        chunks = [ rowbytes[i:i+self.getHeightLimit()] for i in range(0, len(rowbytes), self.getHeightLimit()) ]
 
         delay_per_row: typing.Final[float] = self.calculate_per_line_delay(delay)
         for chunk in chunks:
-
+            await self.cooldown_if_necessary()
             # Reset state before print
             await self.reset()
 
-            #                 1d763000    30                    00    01                     00
-            # Send preamble: `1d763000` + row_bytes:bytes[1] + `00` + chunk_size:bytes[1] + `00`
-            request = PeripageFirmware.PRINT_PIXEL_ROW + int.to_bytes(self.getRowBytes(), 1, 'big') + b'\0' + int.to_bytes(len(chunk), 1, 'big') + b'\0'
+            #                 1d763000                   3000                                     0100
+            # Send preamble: `1d763000`                + row_bytes:bytes[2]                     + chunk_size:bytes[2]
+            request = PeripageFirmware.PRINT_PIXEL_ROW + int.to_bytes(expectedLen, 2, 'little') + int.to_bytes(len(rowbytes), 2, 'little')
 
             # Flush preamble
             await self.tellPrinter(request)
