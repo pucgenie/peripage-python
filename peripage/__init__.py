@@ -160,7 +160,7 @@ class PeripagePrinter:
     the printer, size of the remaining paper roll and type inside the
     printer, ...
     """
-    DEFAULT_DELAY_PER_LINE = 0.001
+    DEFAULT_DELAY_PER_LINE = 0.0005
 
     @staticmethod
     def filter_ascii(text: str) -> str:
@@ -208,9 +208,9 @@ class PeripagePrinter:
 
     async def cooldown_if_necessary(self):
         cooldown = self.overheated - datetime.datetime.now()
-        if cooldown.seconds > 0:
+        if cooldown.total_seconds() > 0:
             print(f"Cooldown for {cooldown}...", file=stderr,)
-            await asyncio.sleep(cooldown.seconds)
+            await asyncio.sleep(cooldown.total_seconds())
 
     async def __aenter__(self) -> typing.Self:
         await self.connect()
@@ -718,7 +718,7 @@ class PeripagePrinter:
             await self.tellPrinter(b'\n')
             self.print_buffer = ''
 
-    async def printRow(self, rowbytes: bytes, delay: float=DEFAULT_DELAY_PER_LINE,) -> None:
+    async def printRow(self, rowbytes: bytes, delay: float=DEFAULT_DELAY_PER_LINE,) -> bool:
         """
         Send bytes representing a single image row in binary black/white mode.
         If amount of bydes exceedes the `Printer.getRowBytes()` constant, input
@@ -736,23 +736,30 @@ class PeripagePrinter:
         * `rowbytes` - bytes representing image pixels, 8 pixels per byte,
         truncated/padded to fit `Printer.getRowBytes()`.
         * `delay` - delay between printing each row of the image.
+
+        Return False if some data was truncated.
         """
 
         expectedLen = self.getRowBytes()
+        ret = True
         if len(rowbytes) < expectedLen:
             rowbytes = rowbytes.ljust(expectedLen, b'\0')
         elif len(rowbytes) > expectedLen:
+            ret = False
             rowbytes = rowbytes[:expectedLen]
+
 
         await self.cooldown_if_necessary()
         self.reset()
 
         # Notify printer about incomming $expectedLen bytes row
-        request = PeripageFirmware.PRINT_PIXEL_ROW + int.to_bytes(self.getRowBytes(), 2, 'little') + bytes.fromhex('0100') + rowbytes
+        request = PeripageFirmware.PRINT_PIXEL_ROW + int.to_bytes(expectedLen, 2, 'little') + int.to_bytes(1, 2, 'little')
         await self.tellPrinter(request)
+
+        await self.tellPrinter(rowbytes)
         await asyncio.sleep(delay)
 
-        # We're done here
+        return ret
 
     def calculate_per_line_delay(self, delay: float,) -> float:
         """Non-staticmethod because may depend on printer type etc."""
@@ -797,7 +804,7 @@ class PeripagePrinter:
 
             #                 1d763000                   3000                                     0100
             # Send preamble: `1d763000`                + row_bytes:bytes[2]                     + chunk_size:bytes[2]
-            request = PeripageFirmware.PRINT_PIXEL_ROW + int.to_bytes(expectedLen, 2, 'little') + int.to_bytes(len(rowbytes), 2, 'little')
+            request = PeripageFirmware.PRINT_PIXEL_ROW + int.to_bytes(expectedLen, 2, 'little') + int.to_bytes(len(chunk), 2, 'little')
 
             # Flush preamble
             await self.tellPrinter(request)
